@@ -127,6 +127,26 @@ impl Detector {
                 }
 
                 let tail = self.wake_tail(result.timestamps.last().copied());
+                if std::env::var_os("OPENCODE_VOICE_DEBUG").is_some() {
+                    let last_timestamp = result.timestamps.last().copied();
+                    let history_start = self.wake_samples.saturating_sub(self.history.len());
+                    let tail_start = wake_tail_start(
+                        self.wake_samples,
+                        history_start,
+                        last_timestamp,
+                        self.sample_rate,
+                    );
+                    eprintln!(
+                        "debug wake: keyword={:?} timestamps={:?} tokens={:?} wake_samples={} history_start={} tail_start={} tail_samples={}",
+                        result.keyword,
+                        result.timestamps,
+                        result.tokens,
+                        self.wake_samples,
+                        history_start,
+                        tail_start,
+                        tail.len()
+                    );
+                }
                 self.spotter.reset(&self.wake_stream);
                 self.wake_samples = 0;
                 self.history.clear();
@@ -161,6 +181,12 @@ impl Detector {
                 }
 
                 let command = classify_command(&result.keyword);
+                if std::env::var_os("OPENCODE_VOICE_DEBUG").is_some() {
+                    eprintln!(
+                        "debug command: keyword={:?} timestamps={:?} tokens={:?}",
+                        result.keyword, result.timestamps, result.tokens
+                    );
+                }
                 self.spotter.reset(&self.command_stream);
 
                 return command.map(|command| Detection {
