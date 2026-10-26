@@ -105,5 +105,5 @@ printf '  binary:  %s\n' "${BIN_DIR}/opencode-voice"
 printf '  help:    %s\n' "${BIN_DIR}/opencode-voice-help"
 printf '  model:   %s\n' "${MODEL_DIR}"
 printf '  service: %s\n' "${UNIT_DIR}/opencode-voice.service"
-printf '\nSay "Hey, OpenCode" and then open, continue, stop, or help within 5 seconds.\n'
+printf '\nSay "Hey, OpenCode" and then open, continue, stop, help, or never mind within 5 seconds.\n'
 printf 'Logs: journalctl --user -u opencode-voice -f\n'
