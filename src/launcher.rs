@@ -11,6 +11,7 @@ const HELP_SCRIPT: &str = include_str!("../scripts/opencode-voice-help.sh");
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum LaunchMode {
     New,
+    Mini,
     Continue,
     Help,
 }
@@ -457,6 +458,7 @@ fn home_dir() -> PathBuf {
 fn run_command(mode: LaunchMode) -> RunCommand {
     match mode {
         LaunchMode::New => RunCommand::new("opencode", Vec::new()),
+        LaunchMode::Mini => RunCommand::new("opencode", vec![OsString::from("mini")]),
         LaunchMode::Continue => RunCommand::new("opencode", vec![OsString::from("--continue")]),
         LaunchMode::Help => match help_script() {
             Some(script) => RunCommand::new(script.into_os_string(), Vec::new()),
@@ -471,6 +473,7 @@ fn run_command(mode: LaunchMode) -> RunCommand {
 fn title(mode: LaunchMode) -> &'static str {
     match mode {
         LaunchMode::Help => "OpenCode Voice Help",
+        LaunchMode::Mini => "OpenCode Mini",
         LaunchMode::New | LaunchMode::Continue => "OpenCode",
     }
 }
@@ -625,6 +628,11 @@ mod tests {
 
     fn continue_run() -> RunCommand {
         RunCommand::new("opencode", vec![OsString::from("--continue")])
+    }
+
+    #[test]
+    fn builds_opencode_mini_command() {
+        assert_eq!(run_command(LaunchMode::Mini).shell_line(), "opencode mini");
     }
 
     fn strings(values: &[&str]) -> Vec<String> {

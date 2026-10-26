@@ -20,6 +20,9 @@ use sherpa_onnx::Wave;
 /// is heard, open OpenCode normally.
 const LISTEN_WINDOW: Duration = Duration::from_secs(5);
 const WAKE_ECHO_GUARD: Duration = Duration::from_millis(300);
+const OPEN_MINI_GRACE: Duration = Duration::from_millis(1000);
+const OPEN_SILENCE_GRACE: Duration = Duration::from_millis(500);
+const OPEN_VOICE_RMS: f32 = 0.005;
 const STOP_COOLDOWN: Duration = Duration::from_secs(1);
 const AUDIO_CHUNK: usize = 1_600;
 
@@ -80,13 +83,52 @@ fn run(config: Config) -> Result<(), String> {
     let mut listening_until: Option<Instant> = None;
     let mut notice: Option<notify::ListeningNotice> = None;
     let mut ignore_open_until: Option<Instant> = None;
+    let mut pending_open: Option<Instant> = None;
+    let mut pending_open_silence: Option<Instant> = None;
 
     loop {
         let count = capture.read(&mut buffer);
 
         if count > 0 {
             if listening_until.is_some() {
-                if let Some(detection) =
+                if detector.accept_mini(capture.sample_rate(), &buffer[..count]) {
+                    pending_open = None;
+                    pending_open_silence = None;
+                    listening_until = None;
+                    notice = None;
+                    ignore_open_until = None;
+                    eprintln!("command detected: MINI (mini)");
+                    execute_and_cooldown(
+                        VoiceCommand::Mini,
+                        &config,
+                        &mut detector,
+                        &mut capture,
+                        &mut buffer,
+                    );
+                    continue;
+                }
+
+                if pending_open.is_some() {
+                    if detector.accept_pending_mini(capture.sample_rate(), &buffer[..count]) {
+                        pending_open = None;
+                        pending_open_silence = None;
+                        listening_until = None;
+                        notice = None;
+                        ignore_open_until = None;
+                        eprintln!("command detected: MINI (mini)");
+                        execute_and_cooldown(
+                            VoiceCommand::Mini,
+                            &config,
+                            &mut detector,
+                            &mut capture,
+                            &mut buffer,
+                        );
+                        continue;
+                    }
+                    if audio_rms(&buffer[..count]) > OPEN_VOICE_RMS {
+                        pending_open_silence = Some(Instant::now() + OPEN_SILENCE_GRACE);
+                    }
+                } else if let Some(detection) =
                     detector.accept_command(capture.sample_rate(), &buffer[..count])
                 {
                     if detection.command == VoiceCommand::Open
@@ -96,6 +138,35 @@ fn run(config: Config) -> Result<(), String> {
                         continue;
                     }
 
+                    if detection.command == VoiceCommand::Open {
+                        pending_open = Some(Instant::now() + OPEN_MINI_GRACE);
+                        pending_open_silence = Some(Instant::now() + OPEN_SILENCE_GRACE);
+                        detector.reset_pending_mini();
+                        if detector.accept_pending_mini(capture.sample_rate(), &buffer[..count]) {
+                            pending_open = None;
+                            pending_open_silence = None;
+                            listening_until = None;
+                            notice = None;
+                            ignore_open_until = None;
+                            eprintln!("command detected: MINI (mini)");
+                            execute_and_cooldown(
+                                VoiceCommand::Mini,
+                                &config,
+                                &mut detector,
+                                &mut capture,
+                                &mut buffer,
+                            );
+                            continue;
+                        }
+                        if audio_rms(&buffer[..count]) > OPEN_VOICE_RMS {
+                            pending_open_silence = Some(Instant::now() + OPEN_SILENCE_GRACE);
+                        }
+                        eprintln!("OPEN heard; waiting briefly for MINI");
+                        continue;
+                    }
+
+                    pending_open = None;
+                    pending_open_silence = None;
                     listening_until = None;
                     notice = None;
                     ignore_open_until = None;
@@ -130,7 +201,10 @@ fn run(config: Config) -> Result<(), String> {
                             listening_until = Some(Instant::now() + LISTEN_WINDOW);
                             notice = Some(notify::ListeningNotice::start(LISTEN_WINDOW.as_secs()));
                             ignore_open_until = Some(Instant::now() + WAKE_ECHO_GUARD);
+                            pending_open = None;
+                            pending_open_silence = None;
                             detector.reset_command();
+                            detector.reset_mini();
                             gate.reset();
 
                             // The wake result can arrive after the next command has already
@@ -140,6 +214,22 @@ fn run(config: Config) -> Result<(), String> {
                             // likely source of an immediate false OPEN.
                             let mut handled = false;
                             for chunk in detection.wake_tail.chunks(AUDIO_CHUNK) {
+                                if detector.accept_mini(capture.sample_rate(), chunk) {
+                                    listening_until = None;
+                                    notice = None;
+                                    ignore_open_until = None;
+                                    eprintln!("command detected: MINI (mini)");
+                                    execute_and_cooldown(
+                                        VoiceCommand::Mini,
+                                        &config,
+                                        &mut detector,
+                                        &mut capture,
+                                        &mut buffer,
+                                    );
+                                    handled = true;
+                                    break;
+                                }
+
                                 if let Some(command) =
                                     detector.accept_command(capture.sample_rate(), chunk)
                                 {
@@ -173,16 +263,43 @@ fn run(config: Config) -> Result<(), String> {
                             if handled {
                                 continue;
                             }
+
+                            // Start the live mini stream cleanly after the wake
+                            // tail, so a command spoken just after the wake is
+                            // not confused by the end of "OpenCode".
+                            detector.reset_mini();
                         }
                     }
                 }
             }
         }
 
-        if listening_until.is_some_and(|deadline| Instant::now() >= deadline) {
+        let now = Instant::now();
+        let open_due = pending_open_silence.is_some_and(|deadline| now >= deadline)
+            || pending_open.is_some_and(|deadline| now >= deadline);
+        if open_due {
+            pending_open = None;
+            pending_open_silence = None;
             listening_until = None;
             notice = None;
             ignore_open_until = None;
+            eprintln!("command detected: OPEN (open)");
+            execute_and_cooldown(
+                VoiceCommand::Open,
+                &config,
+                &mut detector,
+                &mut capture,
+                &mut buffer,
+            );
+            continue;
+        }
+
+        if listening_until.is_some_and(|deadline| now >= deadline) {
+            listening_until = None;
+            notice = None;
+            ignore_open_until = None;
+            pending_open = None;
+            pending_open_silence = None;
             detector.reset_command();
             eprintln!(
                 "no command within {} seconds; canceled",
@@ -225,6 +342,10 @@ fn execute(command: VoiceCommand, config: &Config) -> Duration {
             launch(LaunchMode::New, config);
             config.cooldown
         }
+        VoiceCommand::Mini => {
+            launch(LaunchMode::Mini, config);
+            config.cooldown
+        }
         VoiceCommand::Continue => {
             launch(LaunchMode::Continue, config);
             config.cooldown
@@ -247,6 +368,7 @@ fn execute(command: VoiceCommand, config: &Config) -> Duration {
 fn launch(mode: LaunchMode, config: &Config) {
     let action = match mode {
         LaunchMode::New => "open OpenCode",
+        LaunchMode::Mini => "open OpenCode mini",
         LaunchMode::Continue => "open OpenCode with --continue",
         LaunchMode::Help => "open the voice command help",
     };
@@ -303,25 +425,73 @@ fn run_wav(config: &Config, path: &Path) -> Result<(), String> {
     let mut elapsed = Duration::ZERO;
     let mut listening_until: Option<Duration> = None;
     let mut wake_keyword: Option<String> = None;
+    let mut pending_open: Option<Duration> = None;
+    let mut pending_open_silence: Option<Duration> = None;
 
     for chunk in samples.chunks(AUDIO_CHUNK) {
         if listening_until.is_some() {
-            if let Some(detection) = detector.accept_command(sample_rate as u32, chunk) {
-                println!(
-                    "detected: {} ({})",
-                    detection.keyword,
-                    command_name(detection.command)
-                );
+            if detector.accept_mini(sample_rate as u32, chunk) {
+                println!("detected: MINI (mini)");
                 return Ok(());
+            }
+
+            if pending_open.is_some() {
+                if detector.accept_pending_mini(sample_rate as u32, chunk) {
+                    println!("detected: MINI (mini)");
+                    return Ok(());
+                }
+                if audio_rms(chunk) > OPEN_VOICE_RMS {
+                    pending_open_silence = Some(elapsed + OPEN_SILENCE_GRACE);
+                }
+            } else if let Some(detection) = detector.accept_command(sample_rate as u32, chunk) {
+                if detection.command == VoiceCommand::Open {
+                    pending_open = Some(elapsed + OPEN_MINI_GRACE);
+                    pending_open_silence = Some(elapsed + OPEN_SILENCE_GRACE);
+                    detector.reset_pending_mini();
+                    if detector.accept_pending_mini(sample_rate as u32, chunk) {
+                        println!("detected: MINI (mini)");
+                        return Ok(());
+                    }
+                    if audio_rms(chunk) > OPEN_VOICE_RMS {
+                        pending_open_silence = Some(elapsed + OPEN_SILENCE_GRACE);
+                    }
+                    eprintln!("open detected; waiting briefly for mini");
+                } else {
+                    println!(
+                        "detected: {} ({})",
+                        detection.keyword,
+                        command_name(detection.command)
+                    );
+                    return Ok(());
+                }
             }
         } else if let Some(detection) = detector.accept_wake(sample_rate as u32, chunk) {
             println!("detected: {} (listening)", detection.keyword);
             wake_keyword = Some(detection.keyword);
             listening_until = Some(elapsed + LISTEN_WINDOW);
+            pending_open = None;
+            pending_open_silence = None;
             detector.reset_command();
+            detector.reset_mini();
 
             for tail_chunk in detection.wake_tail.chunks(AUDIO_CHUNK) {
+                if detector.accept_mini(sample_rate as u32, tail_chunk) {
+                    println!("detected: MINI (mini)");
+                    return Ok(());
+                }
+
                 if let Some(command) = detector.accept_command(sample_rate as u32, tail_chunk) {
+                    if command.command == VoiceCommand::Open {
+                        pending_open = Some(elapsed + OPEN_MINI_GRACE);
+                        pending_open_silence = Some(elapsed + OPEN_SILENCE_GRACE);
+                        detector.reset_pending_mini();
+                        if detector.accept_pending_mini(sample_rate as u32, tail_chunk) {
+                            println!("detected: MINI (mini)");
+                            return Ok(());
+                        }
+                        continue;
+                    }
+
                     println!(
                         "detected: {} ({})",
                         command.keyword,
@@ -330,9 +500,18 @@ fn run_wav(config: &Config, path: &Path) -> Result<(), String> {
                     return Ok(());
                 }
             }
+
+            detector.reset_mini();
         }
 
         elapsed += Duration::from_secs_f64(chunk.len() as f64 / sample_rate as f64);
+
+        let open_due = pending_open_silence.is_some_and(|deadline| elapsed >= deadline)
+            || pending_open.is_some_and(|deadline| elapsed >= deadline);
+        if open_due {
+            println!("detected: OPEN (open)");
+            return Ok(());
+        }
 
         if listening_until.is_some_and(|deadline| elapsed >= deadline) {
             let keyword = wake_keyword.take().unwrap_or_default();
@@ -349,11 +528,21 @@ fn command_name(command: VoiceCommand) -> &'static str {
     match command {
         VoiceCommand::Wake => "listen",
         VoiceCommand::Open => "open",
+        VoiceCommand::Mini => "mini",
         VoiceCommand::Continue => "continue",
         VoiceCommand::Stop => "stop",
         VoiceCommand::Help => "help",
         VoiceCommand::NeverMind => "never mind",
     }
+}
+
+fn audio_rms(samples: &[f32]) -> f32 {
+    if samples.is_empty() {
+        return 0.0;
+    }
+
+    let sum = samples.iter().map(|sample| sample * sample).sum::<f32>();
+    (sum / samples.len() as f32).sqrt()
 }
 
 fn drain(capture: &mut audio::Capture, buffer: &mut [f32]) {

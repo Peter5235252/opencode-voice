@@ -10,7 +10,9 @@ Voice commands:
 | Phrase | Action |
 | --- | --- |
 | “Hey, OpenCode” | Show the listening notification; cancel after 5 seconds if no command is heard |
-| “Hey, OpenCode, open” | Open OpenCode immediately, skipping the countdown |
+| “Hey, OpenCode, open” | Open OpenCode, skipping the countdown |
+| “Hey, OpenCode, open mini” | Open a terminal and run `opencode mini` |
+| “Hey, OpenCode, mini” | Open a terminal and run `opencode mini` |
 | “Hey, OpenCode, continue” | Open a terminal and resume the last session with `opencode --continue` |
 | “Hey, OpenCode, resume” | Alias for continue; resumes the last session |
 | “Hey, OpenCode, stop” | Interrupt the active OpenCode response immediately |
@@ -20,19 +22,18 @@ Voice commands:
 Commands can be spoken during the countdown, or immediately after the wake
 phrase. The notification updates every second so you can see how much time is
 left. Because the wake phrase itself contains “open”, an OPEN detected while the
-wake phrase is still being decoded is ignored; an “open” spoken later in the
-window still opens immediately.
+wake phrase is still being decoded is ignored; an “open” spoken later still
+opens, after a brief check for a following “mini”.
 
 Built for a low-power ThinkPad T480:
 
 - **Offline** — no cloud, no API keys, microphone audio stays on the machine.
 - **Lightweight** — 3.3M-parameter sherpa-onnx keyword spotter (~20 MB model).
-- **Efficient** — one worker thread, one shared 3.3M-parameter model, 16 kHz
-  mono where PipeWire can provide it, and only one keyword stream active at a
-  time. A tiny RMS gate skips wake-word decoding while the room is quiet, so
-  idle CPU is near zero; active decoding costs roughly 4% of one CPU core
-  (RTF ~0.04 on an i5-8250U). The command stream runs only during the
-  five-second window.
+- **Efficient** — one worker thread, one shared 3.3M-parameter model, and 16 kHz
+  mono where PipeWire can provide it. A tiny RMS gate skips wake-word decoding
+  while the room is quiet, so idle CPU is near zero. The command and mini
+  keyword streams run only during the five-second listening window, and active
+  decoding still uses only a fraction of one CPU core.
 - **Simple** — Rust binary + user systemd service. No Electron, no Python, no
   background daemon framework.
 
@@ -173,12 +174,13 @@ launcher use your desktop's registered default terminal instead.
    wake stream is reset, so idle CPU stays near zero. When “Hey, OpenCode” is
    recognized, it shows a `notify-send` notification and starts a five-second
    countdown.
-4. During the countdown only the command stream is fed: `open`, `continue`,
-   `stop`, and `help`. The command stream uses the same loaded model, so there
-   is no second model and no extra idle CPU.
+4. During the countdown the command and mini keyword streams are fed: `open`,
+   `open mini`/`mini`, `continue`, `stop`, `help`, and `never mind`. They use
+   the same loaded model, so there is no second model and no extra idle CPU.
 5. If a command is recognized, the service runs it immediately. Otherwise,
    after five seconds it launches the detected terminal with `opencode`.
-6. “Open” starts a normal session immediately. “Continue” starts
+6. “Open” starts a normal session after a brief check for a following “mini”.
+   “Open mini” and “Mini” run `opencode mini`. “Continue” starts
    `opencode --continue`. “Stop” calls the OpenCode API
    (`/api/session/active` and `/api/session/{id}/interrupt`) to interrupt every
    session that is currently generating, even when the terminal is not focused.

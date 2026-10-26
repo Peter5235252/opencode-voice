@@ -17,6 +17,8 @@ const WAKE_KEYWORDS: &str = "\
 /// needs a slightly lower threshold than the longer commands.
 const COMMAND_KEYWORDS: &str = "\
 ▁O P EN #0.15
+▁O P EN ▁MIN I #0.05
+▁MIN I #0.05
 ▁CON T IN U E #0.15
 ▁RE S U ME #0.15
 ▁ST O P #0.15
@@ -24,6 +26,12 @@ const COMMAND_KEYWORDS: &str = "\
 ▁NEVER ▁MIN D #0.10
 ▁NE VER ▁MIN D #0.10
 ";
+
+const MINI_KEYWORDS: &str = "▁MIN I #0.05\n";
+
+/// Used only after the OPEN command has been heard. Detecting the `min` prefix
+/// there lets "open mini" resolve before the full word has finished.
+const PENDING_MINI_KEYWORDS: &str = "▁MIN #0.05\n";
 
 const ENCODER: &str = "encoder-epoch-12-avg-2-chunk-16-left-64.onnx";
 const DECODER: &str = "decoder-epoch-12-avg-2-chunk-16-left-64.onnx";
@@ -44,6 +52,7 @@ const TAIL_BEFORE_END: f32 = 0.05;
 pub enum VoiceCommand {
     Wake,
     Open,
+    Mini,
     Continue,
     Stop,
     Help,
@@ -64,6 +73,8 @@ pub struct Detector {
     spotter: KeywordSpotter,
     wake_stream: OnlineStream,
     command_stream: OnlineStream,
+    mini_stream: OnlineStream,
+    pending_mini_stream: OnlineStream,
     sample_rate: u32,
     wake_samples: usize,
     history: VecDeque<f32>,
@@ -99,12 +110,16 @@ impl Detector {
         })?;
         let wake_stream = spotter.create_stream();
         let command_stream = spotter.create_stream_with_keywords(COMMAND_KEYWORDS);
+        let mini_stream = spotter.create_stream_with_keywords(MINI_KEYWORDS);
+        let pending_mini_stream = spotter.create_stream_with_keywords(PENDING_MINI_KEYWORDS);
         let sample_rate = sample_rate.max(8_000);
 
         Ok(Self {
             spotter,
             wake_stream,
             command_stream,
+            mini_stream,
+            pending_mini_stream,
             sample_rate,
             wake_samples: 0,
             history: VecDeque::with_capacity(sample_rate as usize * HISTORY_SECONDS),
@@ -215,9 +230,108 @@ impl Detector {
         self.spotter.reset(&self.command_stream);
     }
 
+    /// Feed audio to the dedicated mini stream. This runs for the whole
+    /// listening window so a standalone "mini" is detected even when its start
+    /// falls inside the replayed wake tail.
+    pub fn accept_mini(&mut self, sample_rate: u32, samples: &[f32]) -> bool {
+        if samples.is_empty() {
+            return false;
+        }
+
+        self.mini_stream
+            .accept_waveform(sample_rate as i32, samples);
+
+        while self.spotter.is_ready(&self.mini_stream) {
+            self.spotter.decode(&self.mini_stream);
+
+            if let Some(result) = self.spotter.get_result(&self.mini_stream) {
+                if result.keyword.is_empty() {
+                    continue;
+                }
+
+                // Per-stream keyword lists can still see the configured wake
+                // words. Ignore anything that is not the mini command.
+                if !result.keyword.eq_ignore_ascii_case("MINI") {
+                    if std::env::var_os("OPENCODE_VOICE_DEBUG").is_some() {
+                        eprintln!(
+                            "debug mini ignored: keyword={:?} timestamps={:?} tokens={:?}",
+                            result.keyword, result.timestamps, result.tokens
+                        );
+                    }
+                    self.spotter.reset(&self.mini_stream);
+                    return false;
+                }
+
+                if std::env::var_os("OPENCODE_VOICE_DEBUG").is_some() {
+                    eprintln!(
+                        "debug mini: keyword={:?} timestamps={:?} tokens={:?}",
+                        result.keyword, result.timestamps, result.tokens
+                    );
+                }
+                self.spotter.reset(&self.mini_stream);
+                return true;
+            }
+        }
+
+        false
+    }
+
+    /// Feed the short `min` prefix stream used only while an OPEN command is
+    /// waiting to see whether the speaker continues with "mini".
+    pub fn accept_pending_mini(&mut self, sample_rate: u32, samples: &[f32]) -> bool {
+        if samples.is_empty() {
+            return false;
+        }
+
+        self.pending_mini_stream
+            .accept_waveform(sample_rate as i32, samples);
+
+        while self.spotter.is_ready(&self.pending_mini_stream) {
+            self.spotter.decode(&self.pending_mini_stream);
+
+            if let Some(result) = self.spotter.get_result(&self.pending_mini_stream) {
+                if result.keyword.is_empty() {
+                    continue;
+                }
+
+                if !result.keyword.eq_ignore_ascii_case("MIN") {
+                    if std::env::var_os("OPENCODE_VOICE_DEBUG").is_some() {
+                        eprintln!(
+                            "debug pending mini ignored: keyword={:?} timestamps={:?} tokens={:?}",
+                            result.keyword, result.timestamps, result.tokens
+                        );
+                    }
+                    self.spotter.reset(&self.pending_mini_stream);
+                    return false;
+                }
+
+                if std::env::var_os("OPENCODE_VOICE_DEBUG").is_some() {
+                    eprintln!(
+                        "debug pending mini: keyword={:?} timestamps={:?} tokens={:?}",
+                        result.keyword, result.timestamps, result.tokens
+                    );
+                }
+                self.spotter.reset(&self.pending_mini_stream);
+                return true;
+            }
+        }
+
+        false
+    }
+
+    pub fn reset_mini(&mut self) {
+        self.spotter.reset(&self.mini_stream);
+        self.spotter.reset(&self.pending_mini_stream);
+    }
+
+    pub fn reset_pending_mini(&mut self) {
+        self.spotter.reset(&self.pending_mini_stream);
+    }
+
     pub fn reset_all(&mut self) {
         self.reset_wake();
         self.reset_command();
+        self.reset_mini();
     }
 
     fn remember(&mut self, samples: &[f32]) {
@@ -278,6 +392,8 @@ fn classify_command(keyword: &str) -> Option<VoiceCommand> {
 
     match normalized.as_str() {
         "open" => Some(VoiceCommand::Open),
+        "openmini" => Some(VoiceCommand::Mini),
+        "mini" => Some(VoiceCommand::Mini),
         "continue" => Some(VoiceCommand::Continue),
         "resume" => Some(VoiceCommand::Continue),
         "stop" => Some(VoiceCommand::Stop),
@@ -312,17 +428,24 @@ mod tests {
         assert!(WAKE_KEYWORDS.ends_with('\n'));
 
         assert!(COMMAND_KEYWORDS.contains("▁O P EN"));
+        assert!(COMMAND_KEYWORDS.contains("▁O P EN ▁MIN I #0.05"));
+        assert!(COMMAND_KEYWORDS.contains("▁MIN I #0.05"));
         assert!(COMMAND_KEYWORDS.contains("▁CON T IN U E"));
         assert!(COMMAND_KEYWORDS.contains("▁RE S U ME #0.15"));
         assert!(COMMAND_KEYWORDS.contains("▁ST O P"));
         assert!(COMMAND_KEYWORDS.contains("▁HELP #0.08"));
         assert!(COMMAND_KEYWORDS.contains("▁NEVER ▁MIN D"));
         assert!(COMMAND_KEYWORDS.ends_with('\n'));
+
+        assert_eq!(MINI_KEYWORDS, "▁MIN I #0.05\n");
+        assert_eq!(PENDING_MINI_KEYWORDS, "▁MIN #0.05\n");
     }
 
     #[test]
     fn classifies_all_commands() {
         assert_eq!(classify_command("OPEN"), Some(VoiceCommand::Open));
+        assert_eq!(classify_command("OPEN MINI"), Some(VoiceCommand::Mini));
+        assert_eq!(classify_command("MINI"), Some(VoiceCommand::Mini));
         assert_eq!(classify_command("CONTINUE"), Some(VoiceCommand::Continue));
         assert_eq!(classify_command("RESUME"), Some(VoiceCommand::Continue));
         assert_eq!(classify_command("resume"), Some(VoiceCommand::Continue));
