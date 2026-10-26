@@ -6,7 +6,7 @@ pub const USAGE: &str = "\
 opencode-voice - launch or control OpenCode with your voice
 
 VOICE COMMANDS:
-    \"Hey, OpenCode\"             Listen for 5 seconds, then open OpenCode
+    \"Hey, OpenCode\"             Listen for 5 seconds, then cancel if no command is heard
     \"Hey, OpenCode, open\"       Open OpenCode immediately
     \"Hey, OpenCode, continue\"   Resume the last session (opencode --continue)
     \"Hey, OpenCode, stop\"       Interrupt the active OpenCode response

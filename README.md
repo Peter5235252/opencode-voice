@@ -2,13 +2,14 @@
 
 A tiny, fully offline wake-word launcher for Linux. Say **"Hey, OpenCode"** and
 it shows a five-second listening notification. Say a command during the
-countdown, or do nothing and OpenCode opens normally.
+countdown; if no command is heard, the countdown cancels without opening
+OpenCode.
 
 Voice commands:
 
 | Phrase | Action |
 | --- | --- |
-| “Hey, OpenCode” | Show the listening notification; open OpenCode after 5 seconds if no command is heard |
+| “Hey, OpenCode” | Show the listening notification; cancel after 5 seconds if no command is heard |
 | “Hey, OpenCode, open” | Open OpenCode immediately, skipping the countdown |
 | “Hey, OpenCode, continue” | Open a terminal and resume the last session with `opencode --continue` |
 | “Hey, OpenCode, stop” | Interrupt the active OpenCode response immediately |

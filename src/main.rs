@@ -183,16 +183,10 @@ fn run(config: Config) -> Result<(), String> {
             listening_until = None;
             notice = None;
             ignore_open_until = None;
+            detector.reset_command();
             eprintln!(
-                "no command within {} seconds; opening OpenCode",
+                "no command within {} seconds; canceled",
                 LISTEN_WINDOW.as_secs()
-            );
-            execute_and_cooldown(
-                VoiceCommand::Open,
-                &config,
-                &mut detector,
-                &mut capture,
-                &mut buffer,
             );
             continue;
         }
@@ -223,7 +217,11 @@ fn execute_and_cooldown(
 
 fn execute(command: VoiceCommand, config: &Config) -> Duration {
     match command {
-        VoiceCommand::Wake | VoiceCommand::Open => {
+        VoiceCommand::Wake => {
+            eprintln!("wake phrase without a command; canceled");
+            Duration::ZERO
+        }
+        VoiceCommand::Open => {
             launch(LaunchMode::New, config);
             config.cooldown
         }
@@ -338,7 +336,7 @@ fn run_wav(config: &Config, path: &Path) -> Result<(), String> {
 
         if listening_until.is_some_and(|deadline| elapsed >= deadline) {
             let keyword = wake_keyword.take().unwrap_or_default();
-            println!("detected: {keyword} (open after 5s)");
+            println!("detected: {keyword} (canceled after 5s)");
             return Ok(());
         }
     }

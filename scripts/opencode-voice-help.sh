@@ -15,7 +15,8 @@ OpenCode Voice - voice commands
   "Hey, OpenCode, never mind"  Cancel the countdown and do nothing
 
 After "Hey, OpenCode", say open, continue, stop, help, or never mind within
-five seconds. If no command is heard, OpenCode opens normally.
+five seconds. If no command is heard, the countdown cancels without opening
+OpenCode.
 
 The microphone audio is processed entirely offline by the local wake-word
 model. Only "opencode-voice" and the local OpenCode API are used; no audio or
