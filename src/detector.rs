@@ -102,9 +102,9 @@ fn model_file(model_dir: &Path, name: &str) -> Result<String, String> {
         ));
     }
 
-    path.into_os_string()
-        .into_string()
-        .map_err(|_| format!("model path is not valid UTF-8: {}", path.display()))
+    path.to_str()
+        .map(str::to_owned)
+        .ok_or_else(|| format!("model path is not valid UTF-8: {}", path.display()))
 }
 
 #[cfg(test)]
