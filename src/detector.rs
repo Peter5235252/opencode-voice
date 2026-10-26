@@ -27,7 +27,7 @@ const COMMAND_KEYWORDS: &str = "\
 ▁CHA T ▁G P #0.08
 ▁O P EN ▁C LA U DE #0.05
 ▁C LA U DE #0.08
-▁C LA #0.12
+▁C LA #0.05
 ▁CON T IN U E #0.15
 ▁RE S U ME #0.15
 ▁ST O P #0.15
@@ -302,10 +302,6 @@ impl Detector {
             return None;
         }
 
-        if std::env::var_os("OPENCODE_VOICE_DEBUG").is_some() {
-            eprintln!("debug pending feed: {} samples", samples.len());
-        }
-
         self.pending_stream
             .accept_waveform(sample_rate as i32, samples);
 
@@ -470,7 +466,7 @@ mod tests {
         assert!(COMMAND_KEYWORDS.contains("▁CHA T ▁G P #0.08"));
         assert!(COMMAND_KEYWORDS.contains("▁O P EN ▁C LA U DE #0.05"));
         assert!(COMMAND_KEYWORDS.contains("▁C LA U DE #0.08"));
-        assert!(COMMAND_KEYWORDS.contains("▁C LA #0.12"));
+        assert!(COMMAND_KEYWORDS.contains("▁C LA #0.05"));
         assert!(COMMAND_KEYWORDS.contains("▁CON T IN U E"));
         assert!(COMMAND_KEYWORDS.contains("▁RE S U ME #0.15"));
         assert!(COMMAND_KEYWORDS.contains("▁ST O P"));

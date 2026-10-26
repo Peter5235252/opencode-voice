@@ -474,9 +474,6 @@ fn run_wav(config: &Config, path: &Path) -> Result<(), String> {
             }
 
             if pending_open.is_some() {
-                if std::env::var_os("OPENCODE_VOICE_DEBUG").is_some() {
-                    eprintln!("debug pending check at {elapsed:?}");
-                }
                 if let Some(command) = detector.accept_pending(sample_rate as u32, chunk) {
                     println!(
                         "detected: {} ({})",
