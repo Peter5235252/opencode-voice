@@ -13,6 +13,8 @@ Voice commands:
 | “Hey, OpenCode, open” | Open OpenCode, skipping the countdown |
 | “Hey, OpenCode, open mini” | Open a terminal and run `opencode mini` |
 | “Hey, OpenCode, mini” | Open a terminal and run `opencode mini` |
+| “Hey, OpenCode, open ChatGPT” | Open `chatgpt.com` in a new Firefox tab, starting Firefox if needed |
+| “Hey, OpenCode, open Claude” | Open `claude.ai` in a new Firefox tab, starting Firefox if needed |
 | “Hey, OpenCode, continue” | Open a terminal and resume the last session with `opencode --continue` |
 | “Hey, OpenCode, resume” | Alias for continue; resumes the last session |
 | “Hey, OpenCode, stop” | Interrupt the active OpenCode response immediately |
@@ -23,7 +25,7 @@ Commands can be spoken during the countdown, or immediately after the wake
 phrase. The notification updates every second so you can see how much time is
 left. Because the wake phrase itself contains “open”, an OPEN detected while the
 wake phrase is still being decoded is ignored; an “open” spoken later still
-opens, after a brief check for a following “mini”.
+opens, after a brief check for a following “mini”, “ChatGPT”, or “Claude”.
 
 Built for a low-power ThinkPad T480:
 
@@ -46,6 +48,7 @@ Built for a low-power ThinkPad T480:
   available.
 - `libnotify` (`notify-send`) for the listening countdown
 - OpenCode in `PATH`
+- Firefox in `PATH` for the ChatGPT and Claude commands
 - A working microphone
 
 ## Install
@@ -87,7 +90,7 @@ opencode-voice [OPTIONS]
   --energy-gate <RMS> Skip wake decoding below this RMS (0 disables, default: 0.003)
   --cooldown <SECS>   Ignore repeated launches for this long (default: 4)
   --wav <FILE>        Test a WAV file instead of listening to the microphone
-  --dry-run           Detect and log, but do not launch a terminal or stop OpenCode
+  --dry-run           Detect and log, but do not launch a terminal/browser or stop OpenCode
   --list-devices      List available audio input devices and exit
   -h, --help          Print help
   -V, --version       Print version
@@ -175,12 +178,15 @@ launcher use your desktop's registered default terminal instead.
    recognized, it shows a `notify-send` notification and starts a five-second
    countdown.
 4. During the countdown the command and mini keyword streams are fed: `open`,
-   `open mini`/`mini`, `continue`, `stop`, `help`, and `never mind`. They use
-   the same loaded model, so there is no second model and no extra idle CPU.
+   `open mini`/`mini`, `open ChatGPT`, `open Claude`, `continue`, `stop`,
+   `help`, and `never mind`. They use the same loaded model, so there is no
+   second model and no extra idle CPU.
 5. If a command is recognized, the service runs it immediately. Otherwise,
    after five seconds it launches the detected terminal with `opencode`.
-6. “Open” starts a normal session after a brief check for a following “mini”.
-   “Open mini” and “Mini” run `opencode mini`. “Continue” starts
+6. “Open” starts a normal session after a brief check for a following “mini”,
+   “ChatGPT”, or “Claude”. “Open mini” and “Mini” run `opencode mini`.
+   “Open ChatGPT” and “Open Claude” run `firefox --new-tab` with
+   `https://chatgpt.com` or `https://claude.ai`. “Continue” starts
    `opencode --continue`. “Stop” calls the OpenCode API
    (`/api/session/active` and `/api/session/{id}/interrupt`) to interrupt every
    session that is currently generating, even when the terminal is not focused.
@@ -200,8 +206,8 @@ Builds happen on GitHub Actions, not on the T480. The workflow uses an
 Push a tag to publish a release:
 
 ```bash
-git tag v0.3.0
-git push origin v0.3.0
+git tag v0.6.0
+git push origin v0.6.0
 ```
 
 You can also run the **Build** workflow manually from the Actions tab.

@@ -38,7 +38,7 @@ fn show_countdown(seconds: u64, cancel: Arc<AtomicBool>) {
         }
 
         let body = format!(
-            "I'm listening... {remaining}\nSay open, open mini, mini, continue/resume,\nstop, help, or never mind. No command cancels."
+            "I'm listening... {remaining}\nSay open, open mini, mini, open ChatGPT, open Claude,\ncontinue/resume, stop, help, or never mind. No command cancels."
         );
 
         let mut command = Command::new("notify-send");

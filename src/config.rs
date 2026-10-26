@@ -10,6 +10,8 @@ VOICE COMMANDS:
     \"Hey, OpenCode, open\"       Open OpenCode
     \"Hey, OpenCode, open mini\"  Run opencode mini
     \"Hey, OpenCode, mini\"       Run opencode mini
+    \"Hey, OpenCode, open ChatGPT\"  Open ChatGPT in Firefox
+    \"Hey, OpenCode, open Claude\"   Open Claude in Firefox
     \"Hey, OpenCode, continue\"   Resume the last session (opencode --continue)
     \"Hey, OpenCode, resume\"     Alias for continue
     \"Hey, OpenCode, stop\"       Interrupt the active OpenCode response
@@ -27,7 +29,7 @@ OPTIONS:
     --energy-gate <RMS> Skip wake decoding below this RMS (0 disables, default: 0.003)
     --cooldown <SECS>   Ignore repeated launches for this long (default: 4)
     --wav <FILE>        Test a WAV file instead of listening to the microphone
-    --dry-run           Detect and log, but do not launch a terminal
+    --dry-run           Detect and log, but do not launch a terminal or browser
     --list-devices      List available audio input devices and exit
     -h, --help          Print this help and exit
     -V, --version       Print the version and exit

@@ -109,15 +109,21 @@ fn run(config: Config) -> Result<(), String> {
                 }
 
                 if pending_open.is_some() {
-                    if detector.accept_pending_mini(capture.sample_rate(), &buffer[..count]) {
+                    if let Some(command) =
+                        detector.accept_pending(capture.sample_rate(), &buffer[..count])
+                    {
                         pending_open = None;
                         pending_open_silence = None;
                         listening_until = None;
                         notice = None;
                         ignore_open_until = None;
-                        eprintln!("command detected: MINI (mini)");
+                        eprintln!(
+                            "command detected: {} ({})",
+                            command_label(command),
+                            command_name(command)
+                        );
                         execute_and_cooldown(
-                            VoiceCommand::Mini,
+                            command,
                             &config,
                             &mut detector,
                             &mut capture,
@@ -141,16 +147,22 @@ fn run(config: Config) -> Result<(), String> {
                     if detection.command == VoiceCommand::Open {
                         pending_open = Some(Instant::now() + OPEN_MINI_GRACE);
                         pending_open_silence = Some(Instant::now() + OPEN_SILENCE_GRACE);
-                        detector.reset_pending_mini();
-                        if detector.accept_pending_mini(capture.sample_rate(), &buffer[..count]) {
+                        detector.reset_pending();
+                        if let Some(command) =
+                            detector.accept_pending(capture.sample_rate(), &buffer[..count])
+                        {
                             pending_open = None;
                             pending_open_silence = None;
                             listening_until = None;
                             notice = None;
                             ignore_open_until = None;
-                            eprintln!("command detected: MINI (mini)");
+                            eprintln!(
+                                "command detected: {} ({})",
+                                command_label(command),
+                                command_name(command)
+                            );
                             execute_and_cooldown(
-                                VoiceCommand::Mini,
+                                command,
                                 &config,
                                 &mut detector,
                                 &mut capture,
@@ -161,7 +173,7 @@ fn run(config: Config) -> Result<(), String> {
                         if audio_rms(&buffer[..count]) > OPEN_VOICE_RMS {
                             pending_open_silence = Some(Instant::now() + OPEN_SILENCE_GRACE);
                         }
-                        eprintln!("OPEN heard; waiting briefly for MINI");
+                        eprintln!("OPEN heard; waiting briefly for MINI, ChatGPT, or Claude");
                         continue;
                     }
 
@@ -205,6 +217,7 @@ fn run(config: Config) -> Result<(), String> {
                             pending_open_silence = None;
                             detector.reset_command();
                             detector.reset_mini();
+                            detector.reset_pending();
                             gate.reset();
 
                             // The wake result can arrive after the next command has already
@@ -346,6 +359,14 @@ fn execute(command: VoiceCommand, config: &Config) -> Duration {
             launch(LaunchMode::Mini, config);
             config.cooldown
         }
+        VoiceCommand::ChatGpt => {
+            launch(LaunchMode::ChatGpt, config);
+            config.cooldown
+        }
+        VoiceCommand::Claude => {
+            launch(LaunchMode::Claude, config);
+            config.cooldown
+        }
         VoiceCommand::Continue => {
             launch(LaunchMode::Continue, config);
             config.cooldown
@@ -369,6 +390,8 @@ fn launch(mode: LaunchMode, config: &Config) {
     let action = match mode {
         LaunchMode::New => "open OpenCode",
         LaunchMode::Mini => "open OpenCode mini",
+        LaunchMode::ChatGpt => "open ChatGPT in Firefox",
+        LaunchMode::Claude => "open Claude in Firefox",
         LaunchMode::Continue => "open OpenCode with --continue",
         LaunchMode::Help => "open the voice command help",
     };
@@ -436,8 +459,12 @@ fn run_wav(config: &Config, path: &Path) -> Result<(), String> {
             }
 
             if pending_open.is_some() {
-                if detector.accept_pending_mini(sample_rate as u32, chunk) {
-                    println!("detected: MINI (mini)");
+                if let Some(command) = detector.accept_pending(sample_rate as u32, chunk) {
+                    println!(
+                        "detected: {} ({})",
+                        command_label(command),
+                        command_name(command)
+                    );
                     return Ok(());
                 }
                 if audio_rms(chunk) > OPEN_VOICE_RMS {
@@ -447,15 +474,19 @@ fn run_wav(config: &Config, path: &Path) -> Result<(), String> {
                 if detection.command == VoiceCommand::Open {
                     pending_open = Some(elapsed + OPEN_MINI_GRACE);
                     pending_open_silence = Some(elapsed + OPEN_SILENCE_GRACE);
-                    detector.reset_pending_mini();
-                    if detector.accept_pending_mini(sample_rate as u32, chunk) {
-                        println!("detected: MINI (mini)");
+                    detector.reset_pending();
+                    if let Some(command) = detector.accept_pending(sample_rate as u32, chunk) {
+                        println!(
+                            "detected: {} ({})",
+                            command_label(command),
+                            command_name(command)
+                        );
                         return Ok(());
                     }
                     if audio_rms(chunk) > OPEN_VOICE_RMS {
                         pending_open_silence = Some(elapsed + OPEN_SILENCE_GRACE);
                     }
-                    eprintln!("open detected; waiting briefly for mini");
+                    eprintln!("open detected; waiting briefly for mini, ChatGPT, or Claude");
                 } else {
                     println!(
                         "detected: {} ({})",
@@ -473,6 +504,7 @@ fn run_wav(config: &Config, path: &Path) -> Result<(), String> {
             pending_open_silence = None;
             detector.reset_command();
             detector.reset_mini();
+            detector.reset_pending();
 
             for tail_chunk in detection.wake_tail.chunks(AUDIO_CHUNK) {
                 if detector.accept_mini(sample_rate as u32, tail_chunk) {
@@ -484,9 +516,15 @@ fn run_wav(config: &Config, path: &Path) -> Result<(), String> {
                     if command.command == VoiceCommand::Open {
                         pending_open = Some(elapsed + OPEN_MINI_GRACE);
                         pending_open_silence = Some(elapsed + OPEN_SILENCE_GRACE);
-                        detector.reset_pending_mini();
-                        if detector.accept_pending_mini(sample_rate as u32, tail_chunk) {
-                            println!("detected: MINI (mini)");
+                        detector.reset_pending();
+                        if let Some(command) =
+                            detector.accept_pending(sample_rate as u32, tail_chunk)
+                        {
+                            println!(
+                                "detected: {} ({})",
+                                command_label(command),
+                                command_name(command)
+                            );
                             return Ok(());
                         }
                         continue;
@@ -529,10 +567,26 @@ fn command_name(command: VoiceCommand) -> &'static str {
         VoiceCommand::Wake => "listen",
         VoiceCommand::Open => "open",
         VoiceCommand::Mini => "mini",
+        VoiceCommand::ChatGpt => "chatgpt",
+        VoiceCommand::Claude => "claude",
         VoiceCommand::Continue => "continue",
         VoiceCommand::Stop => "stop",
         VoiceCommand::Help => "help",
         VoiceCommand::NeverMind => "never mind",
+    }
+}
+
+fn command_label(command: VoiceCommand) -> &'static str {
+    match command {
+        VoiceCommand::Wake => "WAKE",
+        VoiceCommand::Open => "OPEN",
+        VoiceCommand::Mini => "MINI",
+        VoiceCommand::ChatGpt => "CHATGPT",
+        VoiceCommand::Claude => "CLAUDE",
+        VoiceCommand::Continue => "CONTINUE",
+        VoiceCommand::Stop => "STOP",
+        VoiceCommand::Help => "HELP",
+        VoiceCommand::NeverMind => "NEVER MIND",
     }
 }
 

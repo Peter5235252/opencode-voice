@@ -12,6 +12,8 @@ const HELP_SCRIPT: &str = include_str!("../scripts/opencode-voice-help.sh");
 pub enum LaunchMode {
     New,
     Mini,
+    ChatGpt,
+    Claude,
     Continue,
     Help,
 }
@@ -175,6 +177,10 @@ impl RunCommand {
 }
 
 pub fn launch(mode: LaunchMode, terminal_override: Option<&str>) -> Result<&'static str, String> {
+    if let Some(url) = browser_url(mode) {
+        return launch_firefox(url);
+    }
+
     let terminal = detect_terminal(terminal_override)?;
     let run = run_command(mode);
     let mut command = Command::new(&terminal.program);
@@ -197,6 +203,35 @@ pub fn launch(mode: LaunchMode, terminal_override: Option<&str>) -> Result<&'sta
     });
 
     Ok(terminal.name())
+}
+
+fn browser_url(mode: LaunchMode) -> Option<&'static str> {
+    match mode {
+        LaunchMode::ChatGpt => Some("https://chatgpt.com"),
+        LaunchMode::Claude => Some("https://claude.ai"),
+        LaunchMode::New | LaunchMode::Mini | LaunchMode::Continue | LaunchMode::Help => None,
+    }
+}
+
+fn launch_firefox(url: &str) -> Result<&'static str, String> {
+    let firefox = find_in_path("firefox").ok_or_else(|| {
+        "Firefox was not found in PATH. Install Firefox or add it to PATH.".to_string()
+    })?;
+
+    // --new-tab reuses a running Firefox instance and starts Firefox when it is
+    // not running yet. That gives one deterministic command for both cases.
+    let mut child = Command::new(&firefox)
+        .arg("--new-tab")
+        .arg(url)
+        .current_dir(home_dir())
+        .spawn()
+        .map_err(|error| format!("could not start Firefox: {error}"))?;
+
+    thread::spawn(move || {
+        let _ = child.wait();
+    });
+
+    Ok("Firefox")
 }
 
 fn detect_terminal(terminal_override: Option<&str>) -> Result<Terminal, String> {
@@ -459,6 +494,20 @@ fn run_command(mode: LaunchMode) -> RunCommand {
     match mode {
         LaunchMode::New => RunCommand::new("opencode", Vec::new()),
         LaunchMode::Mini => RunCommand::new("opencode", vec![OsString::from("mini")]),
+        LaunchMode::ChatGpt => RunCommand::new(
+            "firefox",
+            vec![
+                OsString::from("--new-tab"),
+                OsString::from("https://chatgpt.com"),
+            ],
+        ),
+        LaunchMode::Claude => RunCommand::new(
+            "firefox",
+            vec![
+                OsString::from("--new-tab"),
+                OsString::from("https://claude.ai"),
+            ],
+        ),
         LaunchMode::Continue => RunCommand::new("opencode", vec![OsString::from("--continue")]),
         LaunchMode::Help => match help_script() {
             Some(script) => RunCommand::new(script.into_os_string(), Vec::new()),
@@ -474,6 +523,8 @@ fn title(mode: LaunchMode) -> &'static str {
     match mode {
         LaunchMode::Help => "OpenCode Voice Help",
         LaunchMode::Mini => "OpenCode Mini",
+        LaunchMode::ChatGpt => "ChatGPT",
+        LaunchMode::Claude => "Claude",
         LaunchMode::New | LaunchMode::Continue => "OpenCode",
     }
 }
@@ -633,6 +684,24 @@ mod tests {
     #[test]
     fn builds_opencode_mini_command() {
         assert_eq!(run_command(LaunchMode::Mini).shell_line(), "opencode mini");
+    }
+
+    #[test]
+    fn builds_browser_commands() {
+        assert_eq!(
+            run_command(LaunchMode::ChatGpt).shell_line(),
+            "firefox --new-tab https://chatgpt.com"
+        );
+        assert_eq!(
+            run_command(LaunchMode::Claude).shell_line(),
+            "firefox --new-tab https://claude.ai"
+        );
+        assert_eq!(
+            browser_url(LaunchMode::ChatGpt),
+            Some("https://chatgpt.com")
+        );
+        assert_eq!(browser_url(LaunchMode::Claude), Some("https://claude.ai"));
+        assert_eq!(browser_url(LaunchMode::New), None);
     }
 
     fn strings(values: &[&str]) -> Vec<String> {
