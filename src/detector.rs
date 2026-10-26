@@ -18,9 +18,18 @@ const WAKE_KEYWORDS: &str = "\
 const COMMAND_KEYWORDS: &str = "\
 ▁O P EN #0.15
 ▁CON T IN U E #0.15
-▁RE S U ME #0.01
-▁RE S U M E #0.01
-▁RE S UM E #0.01
+▁RE S U ME #0.0
+▁RE S UM E #0.0
+▁RE S U M E #0.0
+▁ RE S U ME #0.0
+▁ RE S UM E #0.0
+▁ RE S U M E #0.0
+▁ R ES U ME #0.0
+▁ R ES UM E #0.0
+▁ R E S U ME #0.0
+▁ R E S UM E #0.0
+▁ R ES U M E #0.0
+▁ R E S U M E #0.0
 ▁ST O P #0.15
 ▁HELP #0.08
 ▁NEVER ▁MIN D #0.10
@@ -315,7 +324,7 @@ mod tests {
 
         assert!(COMMAND_KEYWORDS.contains("▁O P EN"));
         assert!(COMMAND_KEYWORDS.contains("▁CON T IN U E"));
-        assert!(COMMAND_KEYWORDS.contains("▁RE S U ME #0.01"));
+        assert!(COMMAND_KEYWORDS.contains("▁RE S U ME #0.0"));
         assert!(COMMAND_KEYWORDS.contains("▁ST O P"));
         assert!(COMMAND_KEYWORDS.contains("▁HELP #0.08"));
         assert!(COMMAND_KEYWORDS.contains("▁NEVER ▁MIN D"));
