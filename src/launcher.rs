@@ -645,7 +645,7 @@ mod tests {
             definition_for_alias("org.gnome.Terminal").map(|definition| definition.command),
             Some("gnome-terminal")
         );
-        assert_eq!(definition_for_alias("vscode"), None);
+        assert!(definition_for_alias("vscode").is_none());
     }
 
     #[test]
