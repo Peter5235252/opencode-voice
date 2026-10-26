@@ -22,6 +22,7 @@ const LISTEN_WINDOW: Duration = Duration::from_secs(5);
 const WAKE_ECHO_GUARD: Duration = Duration::from_millis(300);
 const OPEN_MINI_GRACE: Duration = Duration::from_millis(1000);
 const OPEN_SILENCE_GRACE: Duration = Duration::from_millis(500);
+const PENDING_HISTORY: Duration = Duration::from_secs(2);
 const OPEN_VOICE_RMS: f32 = 0.005;
 const STOP_COOLDOWN: Duration = Duration::from_secs(1);
 const AUDIO_CHUNK: usize = 1_600;
@@ -85,12 +86,20 @@ fn run(config: Config) -> Result<(), String> {
     let mut ignore_open_until: Option<Instant> = None;
     let mut pending_open: Option<Instant> = None;
     let mut pending_open_silence: Option<Instant> = None;
+    let mut pending_history: Vec<f32> = Vec::new();
 
     loop {
         let count = capture.read(&mut buffer);
 
         if count > 0 {
             if listening_until.is_some() {
+                if pending_open.is_none() {
+                    push_pending_history(
+                        &mut pending_history,
+                        &buffer[..count],
+                        capture.sample_rate(),
+                    );
+                }
                 if detector.accept_mini(capture.sample_rate(), &buffer[..count]) {
                     pending_open = None;
                     pending_open_silence = None;
@@ -149,7 +158,7 @@ fn run(config: Config) -> Result<(), String> {
                         pending_open_silence = Some(Instant::now() + OPEN_SILENCE_GRACE);
                         detector.reset_pending();
                         if let Some(command) =
-                            detector.accept_pending(capture.sample_rate(), &buffer[..count])
+                            detector.accept_pending(capture.sample_rate(), &pending_history)
                         {
                             pending_open = None;
                             pending_open_silence = None;
@@ -170,6 +179,7 @@ fn run(config: Config) -> Result<(), String> {
                             );
                             continue;
                         }
+                        pending_history.clear();
                         if audio_rms(&buffer[..count]) > OPEN_VOICE_RMS {
                             pending_open_silence = Some(Instant::now() + OPEN_SILENCE_GRACE);
                         }
@@ -215,6 +225,7 @@ fn run(config: Config) -> Result<(), String> {
                             ignore_open_until = Some(Instant::now() + WAKE_ECHO_GUARD);
                             pending_open = None;
                             pending_open_silence = None;
+                            pending_history.clear();
                             detector.reset_command();
                             detector.reset_mini();
                             detector.reset_pending();
@@ -450,9 +461,13 @@ fn run_wav(config: &Config, path: &Path) -> Result<(), String> {
     let mut wake_keyword: Option<String> = None;
     let mut pending_open: Option<Duration> = None;
     let mut pending_open_silence: Option<Duration> = None;
+    let mut pending_history: Vec<f32> = Vec::new();
 
     for chunk in samples.chunks(AUDIO_CHUNK) {
         if listening_until.is_some() {
+            if pending_open.is_none() {
+                push_pending_history(&mut pending_history, chunk, sample_rate as u32);
+            }
             if detector.accept_mini(sample_rate as u32, chunk) {
                 println!("detected: MINI (mini)");
                 return Ok(());
@@ -478,7 +493,9 @@ fn run_wav(config: &Config, path: &Path) -> Result<(), String> {
                     pending_open = Some(elapsed + OPEN_MINI_GRACE);
                     pending_open_silence = Some(elapsed + OPEN_SILENCE_GRACE);
                     detector.reset_pending();
-                    if let Some(command) = detector.accept_pending(sample_rate as u32, chunk) {
+                    if let Some(command) =
+                        detector.accept_pending(sample_rate as u32, &pending_history)
+                    {
                         println!(
                             "detected: {} ({})",
                             command_label(command),
@@ -486,6 +503,7 @@ fn run_wav(config: &Config, path: &Path) -> Result<(), String> {
                         );
                         return Ok(());
                     }
+                    pending_history.clear();
                     if audio_rms(chunk) > OPEN_VOICE_RMS {
                         pending_open_silence = Some(elapsed + OPEN_SILENCE_GRACE);
                     }
@@ -505,6 +523,7 @@ fn run_wav(config: &Config, path: &Path) -> Result<(), String> {
             listening_until = Some(elapsed + LISTEN_WINDOW);
             pending_open = None;
             pending_open_silence = None;
+            pending_history.clear();
             detector.reset_command();
             detector.reset_mini();
             detector.reset_pending();
@@ -590,6 +609,15 @@ fn command_label(command: VoiceCommand) -> &'static str {
         VoiceCommand::Stop => "STOP",
         VoiceCommand::Help => "HELP",
         VoiceCommand::NeverMind => "NEVER MIND",
+    }
+}
+
+fn push_pending_history(history: &mut Vec<f32>, samples: &[f32], sample_rate: u32) {
+    let max_samples = (sample_rate as f64 * PENDING_HISTORY.as_secs_f64()) as usize;
+    history.extend_from_slice(samples);
+    if history.len() > max_samples {
+        let excess = history.len() - max_samples;
+        history.drain(..excess);
     }
 }
 
