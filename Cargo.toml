@@ -1,15 +1,16 @@
 [package]
 name = "opencode-voice"
-version = "0.1.1"
+version = "0.2.0"
 edition = "2021"
 rust-version = "1.85"
-description = "Offline wake-word launcher for OpenCode in Konsole"
+description = "Offline wake-word launcher and voice controls for OpenCode in Konsole"
 license = "MIT"
 repository = "https://github.com/Peter5235252/opencode-voice"
 
 [dependencies]
 cpal = "0.18.2"
 ringbuf = "0.4.8"
+serde_json = "1"
 sherpa-onnx = "2.0.0"
 
 [profile.release]

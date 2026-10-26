@@ -3,7 +3,12 @@ use std::path::PathBuf;
 use std::time::Duration;
 
 pub const USAGE: &str = "\
-opencode-voice - launch OpenCode in Konsole when you say \"Hey, OpenCode\"
+opencode-voice - launch or control OpenCode with your voice
+
+VOICE COMMANDS:
+    \"Hey, OpenCode\"             Launch a new OpenCode session
+    \"Hey, OpenCode, continue\"   Resume the last session (opencode --continue)
+    \"Hey, OpenCode, stop\"       Interrupt the active OpenCode response
 
 USAGE:
     opencode-voice [OPTIONS]
@@ -12,7 +17,7 @@ OPTIONS:
     --model-dir <DIR>   Directory containing the sherpa-onnx KWS model
     --device <NAME>     Input device name (case-insensitive substring)
     --threshold <0-1>   Keyword confidence threshold (default: 0.15)
-    --cooldown <SECS>   Ignore detections for this long after a launch (default: 4)
+    --cooldown <SECS>   Ignore repeated launches for this long (default: 4)
     --wav <FILE>        Test a WAV file instead of listening to the microphone
     --dry-run           Detect and log, but do not launch Konsole
     --list-devices      List available audio input devices and exit

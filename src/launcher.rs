@@ -2,9 +2,19 @@ use std::env;
 use std::process::Command;
 use std::thread;
 
-pub fn launch() -> Result<(), String> {
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum LaunchMode {
+    New,
+    Continue,
+}
+
+pub fn launch(mode: LaunchMode) -> Result<(), String> {
     let mut command = Command::new("konsole");
     command.args(["--separate", "--title", "OpenCode", "-e", "opencode"]);
+
+    if mode == LaunchMode::Continue {
+        command.arg("--continue");
+    }
 
     if let Some(home) = env::var_os("HOME") {
         command.current_dir(home);

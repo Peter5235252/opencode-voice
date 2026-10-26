@@ -90,5 +90,5 @@ printf '\nInstalled.\n'
 printf '  binary:  %s\n' "${BIN_DIR}/opencode-voice"
 printf '  model:   %s\n' "${MODEL_DIR}"
 printf '  service: %s\n' "${UNIT_DIR}/opencode-voice.service"
-printf '\nSay "Hey, OpenCode".\n'
+printf '\nSay "Hey, OpenCode", "Hey, OpenCode, continue", or "Hey, OpenCode, stop".\n'
 printf 'Logs: journalctl --user -u opencode-voice -f\n'

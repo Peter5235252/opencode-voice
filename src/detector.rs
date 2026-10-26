@@ -3,19 +3,38 @@ use std::path::{Path, PathBuf};
 use sherpa_onnx::{KeywordSpotter, KeywordSpotterConfig, OnlineStream};
 
 /// sherpa-onnx keywords are written as sentencepiece/BPE pieces separated by
-/// spaces. These four spellings cover "open code" and "opencode", plus the two
-/// most common near-miss pronunciations. Keep the final newline.
+/// spaces. The first group covers "open code" and "opencode", plus the two most
+/// common near-miss pronunciations. The standalone command words are accepted
+/// only during the short follow-up window after a wake phrase, so saying
+/// "continue" or "stop" in normal conversation does not trigger anything.
+///
+/// Keep the final newline.
 const KEYWORDS: &str = "\
 ▁HE Y ▁O P EN ▁CO DE
 ▁HE Y ▁O P EN CO DE
 ▁HE Y ▁O P EN ▁CO AT
 ▁HE Y ▁O P EN ▁CO DER
+▁CON T IN U E
+▁ST O P
 ";
 
 const ENCODER: &str = "encoder-epoch-12-avg-2-chunk-16-left-64.onnx";
 const DECODER: &str = "decoder-epoch-12-avg-2-chunk-16-left-64.onnx";
 const JOINER: &str = "joiner-epoch-12-avg-2-chunk-16-left-64.onnx";
 const TOKENS: &str = "tokens.txt";
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum VoiceCommand {
+    Launch,
+    Continue,
+    Stop,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Detection {
+    pub command: VoiceCommand,
+    pub keyword: String,
+}
 
 pub struct Detector {
     spotter: KeywordSpotter,
@@ -51,9 +70,9 @@ impl Detector {
         Ok(Self { spotter, stream })
     }
 
-    /// Feed mono f32 samples. Returns the matched keyword once a wake phrase is
+    /// Feed mono f32 samples. Returns the matched keyword once a phrase is
     /// found. The stream is reset automatically after a detection.
-    pub fn accept(&mut self, sample_rate: u32, samples: &[f32]) -> Option<String> {
+    pub fn accept(&mut self, sample_rate: u32, samples: &[f32]) -> Option<Detection> {
         if samples.is_empty() {
             return None;
         }
@@ -66,7 +85,10 @@ impl Detector {
             if let Some(result) = self.spotter.get_result(&self.stream) {
                 if !result.keyword.is_empty() {
                     self.spotter.reset(&self.stream);
-                    return Some(result.keyword);
+                    return Some(Detection {
+                        command: classify(&result.keyword),
+                        keyword: result.keyword,
+                    });
                 }
             }
         }
@@ -77,18 +99,24 @@ impl Detector {
     pub fn reset(&mut self) {
         self.spotter.reset(&self.stream);
     }
+}
 
-    /// Offline helper used by `--wav`. Feeds the file in chunks and then adds a
-    /// second of silence so the trailing blanks can be decoded.
-    pub fn accept_wav(&mut self, sample_rate: i32, samples: &[f32]) -> Option<String> {
-        for chunk in samples.chunks(4_800) {
-            if let Some(keyword) = self.accept(sample_rate as u32, chunk) {
-                return Some(keyword);
-            }
-        }
+/// Map the decoded keyword back to an action. Any keyword other than the two
+/// command words belongs to the "Hey, OpenCode" group, including the near-miss
+/// spellings.
+fn classify(keyword: &str) -> VoiceCommand {
+    let normalized: String = keyword
+        .chars()
+        .filter(|character| character.is_ascii_alphabetic())
+        .flat_map(char::to_lowercase)
+        .collect();
 
-        let padding = vec![0.0f32; sample_rate.max(1) as usize];
-        self.accept(sample_rate as u32, &padding)
+    if normalized.contains("continue") {
+        VoiceCommand::Continue
+    } else if normalized.contains("stop") {
+        VoiceCommand::Stop
+    } else {
+        VoiceCommand::Launch
     }
 }
 
@@ -112,8 +140,30 @@ mod tests {
 
     #[test]
     fn keywords_are_bpe_tokenized() {
-        assert!(KEYWORDS.lines().count() >= 4);
+        assert_eq!(KEYWORDS.lines().count(), 6);
         assert!(KEYWORDS.contains("▁HE Y"));
+        assert!(KEYWORDS.contains("▁CON T IN U E"));
+        assert!(KEYWORDS.contains("▁ST O P"));
         assert!(KEYWORDS.ends_with('\n'));
+    }
+
+    #[test]
+    fn classifies_wake_variants() {
+        for keyword in [
+            "HEY OPEN CODE",
+            "HEY OPENCODE",
+            "HEY OPEN COAT",
+            "HEY OPEN CODER",
+        ] {
+            assert_eq!(classify(keyword), VoiceCommand::Launch, "{keyword}");
+        }
+    }
+
+    #[test]
+    fn classifies_commands() {
+        assert_eq!(classify("CONTINUE"), VoiceCommand::Continue);
+        assert_eq!(classify("STOP"), VoiceCommand::Stop);
+        assert_eq!(classify("HEY OPEN CODE CONTINUE"), VoiceCommand::Continue);
+        assert_eq!(classify("HEY OPEN CODE STOP"), VoiceCommand::Stop);
     }
 }

@@ -1,7 +1,20 @@
 # opencode-voice
 
 A tiny, fully offline wake-word launcher for Linux. Say **"Hey, OpenCode"** and
-it opens a new Konsole window running `opencode`.
+it opens a new Konsole window running `opencode`. It can also continue the last
+session or stop a response that is currently being generated.
+
+Voice commands:
+
+| Phrase | Action |
+| --- | --- |
+| “Hey, OpenCode” | Open a new Konsole window running `opencode` |
+| “Hey, OpenCode, continue” | Open Konsole and resume the last session with `opencode --continue` |
+| “Hey, OpenCode, stop” | Interrupt the active OpenCode response immediately |
+
+After “Hey, OpenCode”, the service listens for a short follow-up window
+(1.5 seconds) before deciding whether to launch a new session. This is what
+makes the longer commands reliable without delaying them.
 
 Built for a low-power ThinkPad T480:
 
@@ -54,9 +67,9 @@ opencode-voice [OPTIONS]
   --model-dir <DIR>   Directory containing the sherpa-onnx KWS model
   --device <NAME>     Input device name (case-insensitive substring)
   --threshold <0-1>   Keyword confidence threshold (default: 0.15)
-  --cooldown <SECS>   Ignore detections for this long after a launch (default: 4)
+  --cooldown <SECS>   Ignore repeated launches for this long (default: 4)
   --wav <FILE>        Test a WAV file instead of listening to the microphone
-  --dry-run           Detect and log, but do not launch Konsole
+  --dry-run           Detect and log, but do not launch Konsole or stop OpenCode
   --list-devices      List available audio input devices and exit
   -h, --help          Print help
   -V, --version       Print version
@@ -68,12 +81,16 @@ Examples:
 # See what the microphone options are called
 opencode-voice --list-devices
 
-# Listen on a specific microphone, without opening Konsole
+# Listen on a specific microphone, without opening Konsole or stopping OpenCode
 opencode-voice --device "USB" --dry-run
 
-# Check detection against a 16 kHz mono WAV file
+# Check detection against a WAV file
 opencode-voice --wav sample.wav
 ```
+
+The WAV test also understands the follow-up commands, so
+`opencode-voice --wav hey-opencode-continue.wav` prints `CONTINUE (continue)`
+instead of stopping at the wake phrase.
 
 If the default source is not the microphone you want, set it in PipeWire or
 pass `--device` to the service. A substring is enough, for example
@@ -85,6 +102,10 @@ pass `--device` to the service. A substring is enough, for example
   closer, or set the correct PipeWire source.
 - **False triggers:** raise `--threshold` (try `0.20`–`0.30`) or increase
   `--cooldown`.
+- **"Continue" or "stop" not recognized:** say it promptly after “Hey,
+  OpenCode”; the follow-up window is 1.5 seconds. You can also raise the
+  threshold only if false wake words are a problem, since command words use the
+  same threshold.
 - To add another pronunciation, edit `KEYWORDS` in `src/detector.rs`. The
   keywords are sentencepiece/BPE pieces and can be generated with the model's
   `bpe.model`.
@@ -93,12 +114,20 @@ pass `--device` to the service. A substring is enough, for example
 
 1. `cpal` opens the default input (preferring 16 kHz mono; otherwise the device
    default) and downmixes to mono in the audio callback.
-2. A lock-free ring buffer hands samples to a single worker thread.
+2. A lock-free ring buffer hands samples to a single worker thread in 100 ms
+   chunks, so audio arriving just after the wake phrase is not discarded.
 3. The worker feeds normalized `f32` samples to a sherpa-onnx Zipformer
-   transducer configured for keyword spotting. Keywords are constrained to the
-   wake phrase, so the model only searches a handful of BPE paths.
-4. On a detection, the service starts `konsole --separate --title OpenCode -e
-   opencode`, resets the stream, drains stale audio, and enters a cooldown.
+   transducer configured for keyword spotting. Keywords cover the wake phrase
+   and the two standalone command words.
+4. On “Hey, OpenCode”, the service starts a 1.5-second follow-up window. If
+   “continue” or “stop” is recognized, it runs the matching action; otherwise it
+   starts `konsole --separate --title OpenCode -e opencode`.
+5. “Continue” starts `konsole ... -e opencode --continue`. “Stop” calls the
+   OpenCode API (`/api/session/active` and
+   `/api/session/{id}/interrupt`) to interrupt every session that is currently
+   generating, even when Konsole is not focused.
+6. After an action, the stream is reset, stale audio is drained, and the service
+   enters a cooldown (4 seconds for launches, 1 second for stop).
 
 The model and binary are built for x86_64 Linux. The release binary links
 against the system `libstdc++`/glibc and does not require Rust at runtime.
@@ -112,8 +141,8 @@ Builds happen on GitHub Actions, not on the T480. The workflow uses an
 Push a tag to publish a release:
 
 ```bash
-git tag v0.1.0
-git push origin v0.1.0
+git tag v0.2.0
+git push origin v0.2.0
 ```
 
 You can also run the **Build** workflow manually from the Actions tab.
