@@ -302,6 +302,10 @@ impl Detector {
             return None;
         }
 
+        if std::env::var_os("OPENCODE_VOICE_DEBUG").is_some() {
+            eprintln!("debug pending feed: {} samples", samples.len());
+        }
+
         self.pending_stream
             .accept_waveform(sample_rate as i32, samples);
 
