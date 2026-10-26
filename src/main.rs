@@ -1,6 +1,7 @@
 mod audio;
 mod config;
 mod detector;
+mod gate;
 mod launcher;
 mod notify;
 mod open_code;
@@ -11,6 +12,7 @@ use std::time::{Duration, Instant};
 
 use config::{Command, Config};
 use detector::{Detector, VoiceCommand};
+use gate::{GateAction, WakeGate};
 use launcher::LaunchMode;
 use sherpa_onnx::Wave;
 
@@ -59,9 +61,15 @@ fn run(config: Config) -> Result<(), String> {
     );
     let mut capture = audio::Capture::open(config.device.as_deref())?;
     let mut detector = Detector::new(&config.model_dir, config.threshold, capture.sample_rate())?;
+    let mut gate = WakeGate::new(capture.sample_rate(), config.energy_gate);
 
+    let gate_status = if config.energy_gate > 0.0 {
+        format!("{:.3}", config.energy_gate)
+    } else {
+        "off".to_string()
+    };
     eprintln!(
-        "ready | device: {} | input: {} Hz | threshold: {:.2} | listening for \"Hey, OpenCode\"",
+        "ready | device: {} | input: {} Hz | threshold: {:.2} | gate: {gate_status} | listening for \"Hey, OpenCode\"",
         capture.device_name(),
         capture.sample_rate(),
         config.threshold
@@ -95,50 +103,57 @@ fn run(config: Config) -> Result<(), String> {
                     );
                     continue;
                 }
-            } else if let Some(detection) =
-                detector.accept_wake(capture.sample_rate(), &buffer[..count])
-            {
-                eprintln!(
-                    "wake phrase detected: {} | listening for {} seconds",
-                    detection.keyword,
-                    LISTEN_WINDOW.as_secs()
-                );
+            } else {
+                match gate.filter(&buffer[..count]) {
+                    GateAction::Skip => {}
+                    GateAction::Deactivate => detector.reset_wake(),
+                    GateAction::Feed(samples) => {
+                        if let Some(detection) =
+                            detector.accept_wake(capture.sample_rate(), samples.as_ref())
+                        {
+                            eprintln!(
+                                "wake phrase detected: {} | listening for {} seconds",
+                                detection.keyword,
+                                LISTEN_WINDOW.as_secs()
+                            );
 
-                listening_until = Some(Instant::now() + LISTEN_WINDOW);
-                notice = if config.dry_run {
-                    None
-                } else {
-                    Some(notify::ListeningNotice::start(LISTEN_WINDOW.as_secs()))
-                };
-                detector.reset_command();
+                            listening_until = Some(Instant::now() + LISTEN_WINDOW);
+                            notice = Some(notify::ListeningNotice::start(LISTEN_WINDOW.as_secs()));
+                            detector.reset_command();
+                            gate.reset();
 
-                // The wake result can arrive after the next command has already
-                // started. Replay the short tail after the wake phrase into the
-                // command stream before switching to live audio.
-                let mut handled = false;
-                for chunk in detection.wake_tail.chunks(AUDIO_CHUNK) {
-                    if let Some(command) = detector.accept_command(capture.sample_rate(), chunk) {
-                        listening_until = None;
-                        notice = None;
-                        eprintln!(
-                            "command detected: {} ({})",
-                            command.keyword,
-                            command_name(command.command)
-                        );
-                        execute_and_cooldown(
-                            command.command,
-                            &config,
-                            &mut detector,
-                            &mut capture,
-                            &mut buffer,
-                        );
-                        handled = true;
-                        break;
+                            // The wake result can arrive after the next command has already
+                            // started. Replay the short tail after the wake phrase into the
+                            // command stream before switching to live audio.
+                            let mut handled = false;
+                            for chunk in detection.wake_tail.chunks(AUDIO_CHUNK) {
+                                if let Some(command) =
+                                    detector.accept_command(capture.sample_rate(), chunk)
+                                {
+                                    listening_until = None;
+                                    notice = None;
+                                    eprintln!(
+                                        "command detected: {} ({})",
+                                        command.keyword,
+                                        command_name(command.command)
+                                    );
+                                    execute_and_cooldown(
+                                        command.command,
+                                        &config,
+                                        &mut detector,
+                                        &mut capture,
+                                        &mut buffer,
+                                    );
+                                    handled = true;
+                                    break;
+                                }
+                            }
+
+                            if handled {
+                                continue;
+                            }
+                        }
                     }
-                }
-
-                if handled {
-                    continue;
                 }
             }
         }

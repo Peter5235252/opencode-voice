@@ -19,6 +19,7 @@ OPTIONS:
     --model-dir <DIR>   Directory containing the sherpa-onnx KWS model
     --device <NAME>     Input device name (case-insensitive substring)
     --threshold <0-1>   Keyword confidence threshold (default: 0.15)
+    --energy-gate <RMS> Skip wake decoding below this RMS (0 disables, default: 0.003)
     --cooldown <SECS>   Ignore repeated launches for this long (default: 4)
     --wav <FILE>        Test a WAV file instead of listening to the microphone
     --dry-run           Detect and log, but do not launch Konsole
@@ -38,6 +39,7 @@ pub struct Config {
     pub model_dir: PathBuf,
     pub device: Option<String>,
     pub threshold: f32,
+    pub energy_gate: f32,
     pub cooldown: Duration,
     pub wav: Option<PathBuf>,
     pub dry_run: bool,
@@ -49,6 +51,7 @@ impl Default for Config {
             model_dir: default_model_dir(),
             device: None,
             threshold: 0.15,
+            energy_gate: 0.003,
             cooldown: Duration::from_secs(4),
             wav: None,
             dry_run: false,
@@ -88,6 +91,10 @@ impl Config {
                     let value = next_value(&mut args, "--threshold")?;
                     config.threshold = parse_threshold(&value)?;
                 }
+                "--energy-gate" => {
+                    let value = next_value(&mut args, "--energy-gate")?;
+                    config.energy_gate = parse_energy_gate(&value)?;
+                }
                 "--cooldown" => {
                     let value = next_value(&mut args, "--cooldown")?;
                     config.cooldown = parse_cooldown(&value)?;
@@ -119,6 +126,16 @@ fn parse_threshold(value: &str) -> Result<f32, String> {
         .map_err(|_| format!("invalid threshold: {value}"))?;
     if !(0.0..=1.0).contains(&threshold) {
         return Err(format!("threshold must be between 0 and 1: {value}"));
+    }
+    Ok(threshold)
+}
+
+fn parse_energy_gate(value: &str) -> Result<f32, String> {
+    let threshold = value
+        .parse::<f32>()
+        .map_err(|_| format!("invalid energy gate: {value}"))?;
+    if !(0.0..=1.0).contains(&threshold) {
+        return Err(format!("energy gate must be between 0 and 1: {value}"));
     }
     Ok(threshold)
 }
@@ -165,6 +182,7 @@ mod tests {
         };
 
         assert_eq!(config.threshold, 0.15);
+        assert_eq!(config.energy_gate, 0.003);
         assert_eq!(config.cooldown, Duration::from_secs(4));
         assert!(config.device.is_none());
         assert!(config.wav.is_none());
@@ -178,6 +196,8 @@ mod tests {
             "USB Mic",
             "--threshold",
             "0.25",
+            "--energy-gate",
+            "0.01",
             "--cooldown",
             "2.5",
             "--dry-run",
@@ -190,6 +210,7 @@ mod tests {
 
         assert_eq!(config.device.as_deref(), Some("USB Mic"));
         assert_eq!(config.threshold, 0.25);
+        assert_eq!(config.energy_gate, 0.01);
         assert_eq!(config.cooldown, Duration::from_secs_f32(2.5));
         assert!(config.dry_run);
     }
@@ -197,6 +218,7 @@ mod tests {
     #[test]
     fn rejects_invalid_values() {
         assert!(Config::parse(args(&["--threshold", "2"])).is_err());
+        assert!(Config::parse(args(&["--energy-gate", "-1"])).is_err());
         assert!(Config::parse(args(&["--cooldown", "-1"])).is_err());
         assert!(Config::parse(args(&["--device"])).is_err());
         assert!(Config::parse(args(&["--nope"])).is_err());

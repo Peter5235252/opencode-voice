@@ -24,8 +24,10 @@ Built for a low-power ThinkPad T480:
 - **Lightweight** — 3.3M-parameter sherpa-onnx keyword spotter (~20 MB model).
 - **Efficient** — one worker thread, one shared 3.3M-parameter model, 16 kHz
   mono where PipeWire can provide it, and only one keyword stream active at a
-  time. Continuous decoding costs roughly 4% of one CPU core (RTF ~0.04 on an
-  i5-8250U); the command stream runs only during the five-second window.
+  time. A tiny RMS gate skips wake-word decoding while the room is quiet, so
+  idle CPU is near zero; active decoding costs roughly 4% of one CPU core
+  (RTF ~0.04 on an i5-8250U). The command stream runs only during the
+  five-second window.
 - **Simple** — Rust binary + user systemd service. No Electron, no Python, no
   background daemon framework.
 
@@ -72,6 +74,7 @@ opencode-voice [OPTIONS]
   --model-dir <DIR>   Directory containing the sherpa-onnx KWS model
   --device <NAME>     Input device name (case-insensitive substring)
   --threshold <0-1>   Keyword confidence threshold (default: 0.15)
+  --energy-gate <RMS> Skip wake decoding below this RMS (0 disables, default: 0.003)
   --cooldown <SECS>   Ignore repeated launches for this long (default: 4)
   --wav <FILE>        Test a WAV file instead of listening to the microphone
   --dry-run           Detect and log, but do not launch Konsole or stop OpenCode
@@ -105,6 +108,8 @@ pass `--device` to the service. A substring is enough, for example
 
 - **Misses the phrase:** lower `--threshold` (try `0.10`), speak a little
   closer, or set the correct PipeWire source.
+- **Quiet speech is missed by the efficiency gate:** lower `--energy-gate`
+  (for example `0.001`) or set it to `0` to decode continuously.
 - **False triggers:** raise `--threshold` (try `0.20`–`0.30`) or increase
   `--cooldown`.
 - **"Continue", "stop", or "help" not recognized:** say the command during the
@@ -122,9 +127,12 @@ pass `--device` to the service. A substring is enough, for example
    default) and downmixes to mono in the audio callback.
 2. A lock-free ring buffer hands samples to a single worker thread in 100 ms
    chunks.
-3. The worker feeds the always-on wake stream to a sherpa-onnx Zipformer2
-   keyword spotter. When “Hey, OpenCode” is recognized, it shows a
-   `notify-send` notification and starts a five-second countdown.
+3. A cheap RMS gate drops quiet chunks and keeps a half-second preroll. When
+   speech starts it replays the preroll, then feeds the always-on wake stream
+   to a sherpa-onnx Zipformer2 keyword spotter. After a second of silence the
+   wake stream is reset, so idle CPU stays near zero. When “Hey, OpenCode” is
+   recognized, it shows a `notify-send` notification and starts a five-second
+   countdown.
 4. During the countdown only the command stream is fed: `open`, `continue`,
    `stop`, and `help`. The command stream uses the same loaded model, so there
    is no second model and no extra idle CPU.
