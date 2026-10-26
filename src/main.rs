@@ -239,6 +239,10 @@ fn execute(command: VoiceCommand, config: &Config) -> Duration {
             stop(config);
             STOP_COOLDOWN
         }
+        VoiceCommand::NeverMind => {
+            eprintln!("never mind: canceled the listening window");
+            Duration::ZERO
+        }
     }
 }
 
@@ -350,6 +354,7 @@ fn command_name(command: VoiceCommand) -> &'static str {
         VoiceCommand::Continue => "continue",
         VoiceCommand::Stop => "stop",
         VoiceCommand::Help => "help",
+        VoiceCommand::NeverMind => "never mind",
     }
 }
 

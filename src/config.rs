@@ -11,6 +11,7 @@ VOICE COMMANDS:
     \"Hey, OpenCode, continue\"   Resume the last session (opencode --continue)
     \"Hey, OpenCode, stop\"       Interrupt the active OpenCode response
     \"Hey, OpenCode, help\"       Show the voice command help in a new terminal
+    \"Hey, OpenCode, never mind\" Cancel the countdown and do nothing
 
 USAGE:
     opencode-voice [OPTIONS]

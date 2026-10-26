@@ -20,6 +20,8 @@ const COMMAND_KEYWORDS: &str = "\
 ▁CON T IN U E #0.15
 ▁ST O P #0.15
 ▁HELP #0.08
+▁NEVER ▁MIN D #0.10
+▁NE VER ▁MIN D #0.10
 ";
 
 const ENCODER: &str = "encoder-epoch-12-avg-2-chunk-16-left-64.onnx";
@@ -44,6 +46,7 @@ pub enum VoiceCommand {
     Continue,
     Stop,
     Help,
+    NeverMind,
 }
 
 #[derive(Debug, Clone)]
@@ -277,6 +280,7 @@ fn classify_command(keyword: &str) -> Option<VoiceCommand> {
         "continue" => Some(VoiceCommand::Continue),
         "stop" => Some(VoiceCommand::Stop),
         "help" => Some(VoiceCommand::Help),
+        "nevermind" => Some(VoiceCommand::NeverMind),
         _ => None,
     }
 }
@@ -309,6 +313,7 @@ mod tests {
         assert!(COMMAND_KEYWORDS.contains("▁CON T IN U E"));
         assert!(COMMAND_KEYWORDS.contains("▁ST O P"));
         assert!(COMMAND_KEYWORDS.contains("▁HELP #0.08"));
+        assert!(COMMAND_KEYWORDS.contains("▁NEVER ▁MIN D"));
         assert!(COMMAND_KEYWORDS.ends_with('\n'));
     }
 
@@ -318,6 +323,11 @@ mod tests {
         assert_eq!(classify_command("CONTINUE"), Some(VoiceCommand::Continue));
         assert_eq!(classify_command("STOP"), Some(VoiceCommand::Stop));
         assert_eq!(classify_command("HELP"), Some(VoiceCommand::Help));
+        assert_eq!(
+            classify_command("NEVER MIND"),
+            Some(VoiceCommand::NeverMind)
+        );
+        assert_eq!(classify_command("nevermind"), Some(VoiceCommand::NeverMind));
         assert_eq!(classify_command("something else"), None);
     }
 

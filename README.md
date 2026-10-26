@@ -13,6 +13,7 @@ Voice commands:
 | “Hey, OpenCode, continue” | Open a terminal and resume the last session with `opencode --continue` |
 | “Hey, OpenCode, stop” | Interrupt the active OpenCode response immediately |
 | “Hey, OpenCode, help” | Open a new terminal window with the voice command help |
+| “Hey, OpenCode, never mind” | Cancel the countdown and do nothing |
 
 Commands can be spoken during the countdown, or immediately after the wake
 phrase. The notification updates every second so you can see how much time is
