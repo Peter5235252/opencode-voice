@@ -19,7 +19,6 @@ const COMMAND_KEYWORDS: &str = "\
 ▁O P EN #0.15
 ▁CON T IN U E #0.15
 ▁RE S U ME #0.15
-▁RE S UM E #0.15
 ▁ST O P #0.15
 ▁HELP #0.08
 ▁NEVER ▁MIN D #0.10
@@ -315,7 +314,6 @@ mod tests {
         assert!(COMMAND_KEYWORDS.contains("▁O P EN"));
         assert!(COMMAND_KEYWORDS.contains("▁CON T IN U E"));
         assert!(COMMAND_KEYWORDS.contains("▁RE S U ME #0.15"));
-        assert!(COMMAND_KEYWORDS.contains("▁RE S UM E #0.15"));
         assert!(COMMAND_KEYWORDS.contains("▁ST O P"));
         assert!(COMMAND_KEYWORDS.contains("▁HELP #0.08"));
         assert!(COMMAND_KEYWORDS.contains("▁NEVER ▁MIN D"));
