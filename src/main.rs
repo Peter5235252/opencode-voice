@@ -232,8 +232,8 @@ fn launch(mode: LaunchMode, config: &Config) {
         return;
     }
 
-    match launcher::launch(mode) {
-        Ok(()) => eprintln!("launched Konsole: {action}"),
+    match launcher::launch(mode, config.terminal.as_deref()) {
+        Ok(terminal) => eprintln!("launched {action} via {terminal}"),
         Err(error) => eprintln!("{error}"),
     }
 }

@@ -3,7 +3,7 @@ name = "opencode-voice"
 version = "0.3.0"
 edition = "2021"
 rust-version = "1.85"
-description = "Offline wake-word launcher and voice controls for OpenCode in Konsole"
+description = "Offline wake-word launcher and voice controls for OpenCode"
 license = "MIT"
 repository = "https://github.com/Peter5235252/opencode-voice"
 

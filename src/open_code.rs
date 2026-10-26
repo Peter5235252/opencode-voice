@@ -11,7 +11,7 @@ pub struct StopReport {
 
 /// Ask the OpenCode background service to interrupt every session that is
 /// currently running. This is what the TUI's stop key does, but it works even
-/// when the Konsole window is not focused.
+/// when the terminal window is not focused.
 pub fn stop_active_sessions() -> Result<StopReport, String> {
     let output = opencode_api(&["api", "GET", "/api/session/active"])?;
     let session_ids = parse_active_sessions(&output)?;

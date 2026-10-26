@@ -22,10 +22,21 @@ need curl
 need tar
 need systemctl
 
-command -v konsole >/dev/null 2>&1 || {
-    printf 'Konsole is not installed.\n' >&2
-    exit 1
-}
+# The binary auto-detects a supported terminal emulator at launch time.
+terminal_found=0
+for terminal in \
+    xdg-terminal-exec kitty ghostty alacritty konsole gnome-terminal wezterm \
+    ptyxis foot xfce4-terminal tilix terminator xterm x-terminal-emulator; do
+    if command -v "$terminal" >/dev/null 2>&1; then
+        terminal_found=1
+        break
+    fi
+done
+if [ "$terminal_found" -eq 0 ]; then
+    printf 'warning: no supported terminal emulator found in PATH.\n' >&2
+    printf 'Install kitty, Ghostty, Alacritty, Konsole, GNOME Terminal, WezTerm, foot, or another supported terminal.\n' >&2
+    printf 'You can also set OPENCODE_VOICE_TERMINAL or pass --terminal to the service.\n' >&2
+fi
 command -v opencode >/dev/null 2>&1 || {
     printf 'opencode is not in PATH.\n' >&2
     exit 1

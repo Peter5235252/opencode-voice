@@ -10,9 +10,9 @@ Voice commands:
 | --- | --- |
 | “Hey, OpenCode” | Show the listening notification; open OpenCode after 5 seconds if no command is heard |
 | “Hey, OpenCode, open” | Open OpenCode immediately, skipping the countdown |
-| “Hey, OpenCode, continue” | Open Konsole and resume the last session with `opencode --continue` |
+| “Hey, OpenCode, continue” | Open a terminal and resume the last session with `opencode --continue` |
 | “Hey, OpenCode, stop” | Interrupt the active OpenCode response immediately |
-| “Hey, OpenCode, help” | Open a Konsole window with the voice command help |
+| “Hey, OpenCode, help” | Open a new terminal window with the voice command help |
 
 Commands can be spoken during the countdown, or immediately after the wake
 phrase. The notification updates every second so you can see how much time is
@@ -33,8 +33,11 @@ Built for a low-power ThinkPad T480:
 
 ## Requirements
 
-- Arch Linux / CachyOS (or any distro with PipeWire and KDE Plasma)
-- KDE Konsole
+- Linux desktop with PipeWire, PulseAudio, or ALSA
+- A supported terminal emulator: kitty, Ghostty, Alacritty, Konsole, GNOME
+  Terminal, WezTerm, Ptyxis, foot, XFCE4 Terminal, Tilix, Terminator, xterm,
+  or `x-terminal-emulator`. `xdg-terminal-exec` is used automatically when
+  available.
 - `libnotify` (`notify-send`) for the listening countdown
 - OpenCode in `PATH`
 - A working microphone
@@ -73,11 +76,12 @@ opencode-voice [OPTIONS]
 
   --model-dir <DIR>   Directory containing the sherpa-onnx KWS model
   --device <NAME>     Input device name (case-insensitive substring)
+  --terminal <NAME>   Terminal emulator to use (default: auto-detect)
   --threshold <0-1>   Keyword confidence threshold (default: 0.15)
   --energy-gate <RMS> Skip wake decoding below this RMS (0 disables, default: 0.003)
   --cooldown <SECS>   Ignore repeated launches for this long (default: 4)
   --wav <FILE>        Test a WAV file instead of listening to the microphone
-  --dry-run           Detect and log, but do not launch Konsole or stop OpenCode
+  --dry-run           Detect and log, but do not launch a terminal or stop OpenCode
   --list-devices      List available audio input devices and exit
   -h, --help          Print help
   -V, --version       Print version
@@ -89,8 +93,11 @@ Examples:
 # See what the microphone options are called
 opencode-voice --list-devices
 
-# Listen on a specific microphone, without opening Konsole or stopping OpenCode
+# Listen on a specific microphone, without opening a terminal or stopping OpenCode
 opencode-voice --device "USB" --dry-run
+
+# Use a specific terminal emulator for this run
+opencode-voice --terminal alacritty
 
 # Check detection against a WAV file
 opencode-voice --wav sample.wav
@@ -104,6 +111,31 @@ If the default source is not the microphone you want, set it in PipeWire or
 pass `--device` to the service. A substring is enough, for example
 `--device "Belső hangforrás"`.
 
+### Terminal support
+
+The launcher auto-detects a terminal emulator. It prefers, in order:
+
+1. `--terminal <NAME>` or `OPENCODE_VOICE_TERMINAL`
+2. `$TERMINAL`, current-terminal hints (for example `KITTY_PID` or
+   `ALACRITTY_SOCKET`), `$TERM_PROGRAM`, or `$TERM`
+3. `xdg-terminal-exec` when it is installed and configured
+4. the desktop's default (Konsole on KDE, GNOME Terminal/Ptyxis on GNOME,
+   XFCE4 Terminal on XFCE)
+5. the first installed from: kitty, Ghostty, Alacritty, Konsole, GNOME
+   Terminal, WezTerm, Ptyxis, foot, XFCE4 Terminal, Tilix, Terminator, xterm,
+   `x-terminal-emulator`
+
+Use `--terminal auto` to clear the `--terminal` pin and fall back to
+environment/desktop detection. The same setting can be pinned in the systemd
+unit with:
+
+```ini
+Environment=OPENCODE_VOICE_TERMINAL=kitty
+```
+
+If your terminal is not in the list, installing `xdg-terminal-exec` lets the
+launcher use your desktop's registered default terminal instead.
+
 ### Tuning
 
 - **Misses the phrase:** lower `--threshold` (try `0.10`), speak a little
@@ -115,6 +147,9 @@ pass `--device` to the service. A substring is enough, for example
 - **"Continue", "stop", or "help" not recognized:** say the command during the
   five-second listening window. “Help” uses a slightly lower per-keyword
   threshold because it is a short word.
+- **The wrong terminal opens:** pass `--terminal <NAME>`, set
+  `OPENCODE_VOICE_TERMINAL=...`, or install `xdg-terminal-exec` and configure
+  your preferred terminal there.
 - **No notification appears:** install `libnotify` (`notify-send`). Voice
   commands still work without it; only the visual countdown is missing.
 - To add another pronunciation, edit `WAKE_KEYWORDS` or `COMMAND_KEYWORDS` in
@@ -137,13 +172,12 @@ pass `--device` to the service. A substring is enough, for example
    `stop`, and `help`. The command stream uses the same loaded model, so there
    is no second model and no extra idle CPU.
 5. If a command is recognized, the service runs it immediately. Otherwise,
-   after five seconds it starts `konsole --separate --title OpenCode -e
-   opencode`.
+   after five seconds it launches the detected terminal with `opencode`.
 6. “Open” starts a normal session immediately. “Continue” starts
-   `konsole ... -e opencode --continue`. “Stop” calls the OpenCode API
+   `opencode --continue`. “Stop” calls the OpenCode API
    (`/api/session/active` and `/api/session/{id}/interrupt`) to interrupt every
-   session that is currently generating, even when Konsole is not focused.
-   “Help” starts `opencode-voice-help` in a new Konsole window.
+   session that is currently generating, even when the terminal is not focused.
+   “Help” starts `opencode-voice-help` in a new terminal window.
 7. After an action, the streams are reset, stale audio is drained, and the
    service enters a cooldown (4 seconds for launches, 1 second for stop).
 

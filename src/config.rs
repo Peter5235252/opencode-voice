@@ -10,7 +10,7 @@ VOICE COMMANDS:
     \"Hey, OpenCode, open\"       Open OpenCode immediately
     \"Hey, OpenCode, continue\"   Resume the last session (opencode --continue)
     \"Hey, OpenCode, stop\"       Interrupt the active OpenCode response
-    \"Hey, OpenCode, help\"       Show the voice command help in Konsole
+    \"Hey, OpenCode, help\"       Show the voice command help in a new terminal
 
 USAGE:
     opencode-voice [OPTIONS]
@@ -18,17 +18,20 @@ USAGE:
 OPTIONS:
     --model-dir <DIR>   Directory containing the sherpa-onnx KWS model
     --device <NAME>     Input device name (case-insensitive substring)
+    --terminal <NAME>   Terminal emulator to use (default: auto-detect)
     --threshold <0-1>   Keyword confidence threshold (default: 0.15)
     --energy-gate <RMS> Skip wake decoding below this RMS (0 disables, default: 0.003)
     --cooldown <SECS>   Ignore repeated launches for this long (default: 4)
     --wav <FILE>        Test a WAV file instead of listening to the microphone
-    --dry-run           Detect and log, but do not launch Konsole
+    --dry-run           Detect and log, but do not launch a terminal
     --list-devices      List available audio input devices and exit
     -h, --help          Print this help and exit
     -V, --version       Print the version and exit
 
 ENVIRONMENT:
     XDG_DATA_HOME       Used to find the default model directory
+    OPENCODE_VOICE_TERMINAL
+                        Preferred terminal emulator; same names as --terminal
 
 The microphone audio never leaves this machine. The wake-word model runs
 entirely offline through sherpa-onnx.
@@ -38,6 +41,7 @@ entirely offline through sherpa-onnx.
 pub struct Config {
     pub model_dir: PathBuf,
     pub device: Option<String>,
+    pub terminal: Option<String>,
     pub threshold: f32,
     pub energy_gate: f32,
     pub cooldown: Duration,
@@ -50,6 +54,7 @@ impl Default for Config {
         Self {
             model_dir: default_model_dir(),
             device: None,
+            terminal: None,
             threshold: 0.15,
             energy_gate: 0.003,
             cooldown: Duration::from_secs(4),
@@ -86,6 +91,14 @@ impl Config {
                 }
                 "--device" => {
                     config.device = Some(next_value(&mut args, "--device")?);
+                }
+                "--terminal" => {
+                    let value = next_value(&mut args, "--terminal")?;
+                    config.terminal = if value.eq_ignore_ascii_case("auto") {
+                        None
+                    } else {
+                        Some(value)
+                    };
                 }
                 "--threshold" => {
                     let value = next_value(&mut args, "--threshold")?;
@@ -185,6 +198,7 @@ mod tests {
         assert_eq!(config.energy_gate, 0.003);
         assert_eq!(config.cooldown, Duration::from_secs(4));
         assert!(config.device.is_none());
+        assert!(config.terminal.is_none());
         assert!(config.wav.is_none());
         assert!(!config.dry_run);
     }
@@ -194,6 +208,8 @@ mod tests {
         let command = Config::parse(args(&[
             "--device",
             "USB Mic",
+            "--terminal",
+            "alacritty",
             "--threshold",
             "0.25",
             "--energy-gate",
@@ -209,10 +225,21 @@ mod tests {
         };
 
         assert_eq!(config.device.as_deref(), Some("USB Mic"));
+        assert_eq!(config.terminal.as_deref(), Some("alacritty"));
         assert_eq!(config.threshold, 0.25);
         assert_eq!(config.energy_gate, 0.01);
         assert_eq!(config.cooldown, Duration::from_secs_f32(2.5));
         assert!(config.dry_run);
+    }
+
+    #[test]
+    fn terminal_auto_clears_override() {
+        let command = Config::parse(args(&["--terminal", "auto"])).expect("config should parse");
+        let Command::Run(config) = command else {
+            panic!("expected run command");
+        };
+
+        assert!(config.terminal.is_none());
     }
 
     #[test]
@@ -221,6 +248,7 @@ mod tests {
         assert!(Config::parse(args(&["--energy-gate", "-1"])).is_err());
         assert!(Config::parse(args(&["--cooldown", "-1"])).is_err());
         assert!(Config::parse(args(&["--device"])).is_err());
+        assert!(Config::parse(args(&["--terminal"])).is_err());
         assert!(Config::parse(args(&["--nope"])).is_err());
     }
 }
