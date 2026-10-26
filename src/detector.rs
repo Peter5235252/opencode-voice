@@ -30,7 +30,11 @@ const TOKENS: &str = "tokens.txt";
 /// Enough history to cover the gap between the end of the wake phrase and the
 /// delayed keyword result, without keeping a large always-on buffer.
 const HISTORY_SECONDS: usize = 3;
-const TAIL_BEFORE_END: f32 = 0.05;
+
+/// Start the replay just after the last wake token. The old version replayed a
+/// little audio before the last timestamp, which could include the "open" in
+/// "OpenCode" and fire an OPEN command immediately after the wake phrase.
+const TAIL_AFTER_LAST_TOKEN: f32 = 0.05;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum VoiceCommand {
@@ -194,25 +198,44 @@ impl Detector {
     }
 
     fn wake_tail(&self, last_timestamp: Option<f32>) -> Vec<f32> {
-        // Timestamps are relative to the last stream reset. Convert the last
-        // wake token to a sample index and include a tiny overlap so the start
-        // of a command is not clipped.
         let history_start = self.wake_samples.saturating_sub(self.history.len());
-        let base_end = last_timestamp
-            .filter(|timestamp| timestamp.is_finite() && *timestamp >= 0.0)
-            .map(|timestamp| (timestamp * self.sample_rate as f32).round() as usize)
-            .unwrap_or_else(|| {
-                self.wake_samples
-                    .saturating_sub(self.sample_rate as usize / 2)
-            })
-            .min(self.wake_samples);
-
-        let overlap = (self.sample_rate as f32 * TAIL_BEFORE_END) as usize;
-        let start = base_end.saturating_sub(overlap).max(history_start);
+        let start = wake_tail_start(
+            self.wake_samples,
+            history_start,
+            last_timestamp,
+            self.sample_rate,
+        );
         let skip = start.saturating_sub(history_start);
 
         self.history.iter().skip(skip).copied().collect()
     }
+}
+
+/// The sample index where the post-wake replay starts.
+///
+/// Timestamps are relative to the last stream reset. We intentionally start
+/// *after* the last wake token rather than overlapping it: the wake phrase
+/// contains the word "open", so replaying any part of it can make the command
+/// stream fire OPEN immediately. If the model does not provide a timestamp we
+/// skip the replay entirely; live audio starts on the next chunk.
+fn wake_tail_start(
+    wake_samples: usize,
+    history_start: usize,
+    last_timestamp: Option<f32>,
+    sample_rate: u32,
+) -> usize {
+    let last_token_end = match last_timestamp {
+        Some(timestamp) if timestamp.is_finite() && timestamp >= 0.0 => {
+            (timestamp * sample_rate as f32).round() as usize
+        }
+        _ => return wake_samples,
+    };
+
+    let after = (sample_rate as f32 * TAIL_AFTER_LAST_TOKEN) as usize;
+    last_token_end
+        .saturating_add(after)
+        .max(history_start)
+        .min(wake_samples)
 }
 
 fn classify_command(keyword: &str) -> Option<VoiceCommand> {
@@ -269,5 +292,19 @@ mod tests {
         assert_eq!(classify_command("STOP"), Some(VoiceCommand::Stop));
         assert_eq!(classify_command("HELP"), Some(VoiceCommand::Help));
         assert_eq!(classify_command("something else"), None);
+    }
+
+    #[test]
+    fn wake_tail_starts_after_the_last_wake_token() {
+        // 1.0 s timestamp at 16 kHz, plus the 50 ms post-token guard.
+        assert_eq!(wake_tail_start(32_000, 0, Some(1.0), 16_000), 16_000 + 800);
+
+        // No usable timestamp: do not replay any audio from the wake phrase.
+        assert_eq!(wake_tail_start(32_000, 0, None, 16_000), 32_000);
+        assert_eq!(wake_tail_start(32_000, 0, Some(f32::NAN), 16_000), 32_000);
+        assert_eq!(wake_tail_start(32_000, 0, Some(-1.0), 16_000), 32_000);
+
+        // Never start before the retained history.
+        assert_eq!(wake_tail_start(32_000, 10_000, Some(0.5), 16_000), 10_000);
     }
 }

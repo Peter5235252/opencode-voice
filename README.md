@@ -16,7 +16,9 @@ Voice commands:
 
 Commands can be spoken during the countdown, or immediately after the wake
 phrase. The notification updates every second so you can see how much time is
-left.
+left. Because the wake phrase itself contains “open”, an OPEN detected while the
+wake phrase is still being decoded is ignored; an “open” spoken later in the
+window still opens immediately.
 
 Built for a low-power ThinkPad T480:
 

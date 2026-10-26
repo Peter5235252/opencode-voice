@@ -19,6 +19,7 @@ use sherpa_onnx::Wave;
 /// After the wake phrase, listen this long for an optional command. If nothing
 /// is heard, open OpenCode normally.
 const LISTEN_WINDOW: Duration = Duration::from_secs(5);
+const WAKE_ECHO_GUARD: Duration = Duration::from_millis(300);
 const STOP_COOLDOWN: Duration = Duration::from_secs(1);
 const AUDIO_CHUNK: usize = 1_600;
 
@@ -78,6 +79,7 @@ fn run(config: Config) -> Result<(), String> {
     let mut buffer = vec![0.0f32; AUDIO_CHUNK];
     let mut listening_until: Option<Instant> = None;
     let mut notice: Option<notify::ListeningNotice> = None;
+    let mut ignore_open_until: Option<Instant> = None;
 
     loop {
         let count = capture.read(&mut buffer);
@@ -87,8 +89,16 @@ fn run(config: Config) -> Result<(), String> {
                 if let Some(detection) =
                     detector.accept_command(capture.sample_rate(), &buffer[..count])
                 {
+                    if detection.command == VoiceCommand::Open
+                        && ignore_open_until.is_some_and(|deadline| Instant::now() < deadline)
+                    {
+                        eprintln!("ignored OPEN from the wake phrase; still listening");
+                        continue;
+                    }
+
                     listening_until = None;
                     notice = None;
+                    ignore_open_until = None;
                     eprintln!(
                         "command detected: {} ({})",
                         detection.keyword,
@@ -119,19 +129,30 @@ fn run(config: Config) -> Result<(), String> {
 
                             listening_until = Some(Instant::now() + LISTEN_WINDOW);
                             notice = Some(notify::ListeningNotice::start(LISTEN_WINDOW.as_secs()));
+                            ignore_open_until = Some(Instant::now() + WAKE_ECHO_GUARD);
                             detector.reset_command();
                             gate.reset();
 
                             // The wake result can arrive after the next command has already
                             // started. Replay the short tail after the wake phrase into the
-                            // command stream before switching to live audio.
+                            // command stream before switching to live audio. OPEN is skipped:
+                            // the wake phrase itself ends in "OpenCode", which is the most
+                            // likely source of an immediate false OPEN.
                             let mut handled = false;
                             for chunk in detection.wake_tail.chunks(AUDIO_CHUNK) {
                                 if let Some(command) =
                                     detector.accept_command(capture.sample_rate(), chunk)
                                 {
+                                    if command.command == VoiceCommand::Open {
+                                        eprintln!(
+                                            "ignored OPEN from the wake phrase; still listening"
+                                        );
+                                        continue;
+                                    }
+
                                     listening_until = None;
                                     notice = None;
+                                    ignore_open_until = None;
                                     eprintln!(
                                         "command detected: {} ({})",
                                         command.keyword,
@@ -161,6 +182,7 @@ fn run(config: Config) -> Result<(), String> {
         if listening_until.is_some_and(|deadline| Instant::now() >= deadline) {
             listening_until = None;
             notice = None;
+            ignore_open_until = None;
             eprintln!(
                 "no command within {} seconds; opening OpenCode",
                 LISTEN_WINDOW.as_secs()
