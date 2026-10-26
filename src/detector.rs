@@ -34,7 +34,6 @@ impl Detector {
         config.model_config.transducer.decoder = Some(decoder);
         config.model_config.transducer.joiner = Some(joiner);
         config.model_config.tokens = Some(tokens);
-        config.model_config.model_type = Some("zipformer".to_string());
         config.model_config.num_threads = 1;
         config.model_config.provider = Some("cpu".to_string());
         config.keywords_buf = Some(KEYWORDS.to_string());
