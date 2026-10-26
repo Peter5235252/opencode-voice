@@ -1,28 +1,31 @@
 # opencode-voice
 
 A tiny, fully offline wake-word launcher for Linux. Say **"Hey, OpenCode"** and
-it opens a new Konsole window running `opencode`. It can also continue the last
-session or stop a response that is currently being generated.
+it shows a five-second listening notification. Say a command during the
+countdown, or do nothing and OpenCode opens normally.
 
 Voice commands:
 
 | Phrase | Action |
 | --- | --- |
-| “Hey, OpenCode” | Open a new Konsole window running `opencode` |
+| “Hey, OpenCode” | Show the listening notification; open OpenCode after 5 seconds if no command is heard |
+| “Hey, OpenCode, open” | Open OpenCode immediately, skipping the countdown |
 | “Hey, OpenCode, continue” | Open Konsole and resume the last session with `opencode --continue` |
 | “Hey, OpenCode, stop” | Interrupt the active OpenCode response immediately |
+| “Hey, OpenCode, help” | Open a Konsole window with the voice command help |
 
-After “Hey, OpenCode”, the service listens for a short follow-up window
-(1.5 seconds) before deciding whether to launch a new session. This is what
-makes the longer commands reliable without delaying them.
+Commands can be spoken during the countdown, or immediately after the wake
+phrase. The notification updates every second so you can see how much time is
+left.
 
 Built for a low-power ThinkPad T480:
 
 - **Offline** — no cloud, no API keys, microphone audio stays on the machine.
 - **Lightweight** — 3.3M-parameter sherpa-onnx keyword spotter (~20 MB model).
-- **Efficient** — single worker thread, 16 kHz mono where PipeWire can provide
-  it, and roughly 4% of one CPU core while continuously decoding (RTF ~0.04 on
-  an i5-8250U). Idle CPU is much lower.
+- **Efficient** — one worker thread, one shared 3.3M-parameter model, 16 kHz
+  mono where PipeWire can provide it, and only one keyword stream active at a
+  time. Continuous decoding costs roughly 4% of one CPU core (RTF ~0.04 on an
+  i5-8250U); the command stream runs only during the five-second window.
 - **Simple** — Rust binary + user systemd service. No Electron, no Python, no
   background daemon framework.
 
@@ -30,6 +33,7 @@ Built for a low-power ThinkPad T480:
 
 - Arch Linux / CachyOS (or any distro with PipeWire and KDE Plasma)
 - KDE Konsole
+- `libnotify` (`notify-send`) for the listening countdown
 - OpenCode in `PATH`
 - A working microphone
 
@@ -48,6 +52,7 @@ The script installs:
 | Path | Purpose |
 | --- | --- |
 | `~/.local/bin/opencode-voice` | The binary |
+| `~/.local/bin/opencode-voice-help` | Voice command help shown by “help” |
 | `~/.local/share/opencode-voice/models/...` | Offline KWS model |
 | `~/.config/systemd/user/opencode-voice.service` | Autostart user service |
 
@@ -88,9 +93,9 @@ opencode-voice --device "USB" --dry-run
 opencode-voice --wav sample.wav
 ```
 
-The WAV test also understands the follow-up commands, so
-`opencode-voice --wav hey-opencode-continue.wav` prints `CONTINUE (continue)`
-instead of stopping at the wake phrase.
+The WAV test also understands the listening window, so
+`opencode-voice --wav hey-opencode-continue.wav` prints the wake detection and
+then `CONTINUE (continue)` instead of stopping at the wake phrase.
 
 If the default source is not the microphone you want, set it in PipeWire or
 pass `--device` to the service. A substring is enough, for example
@@ -102,32 +107,37 @@ pass `--device` to the service. A substring is enough, for example
   closer, or set the correct PipeWire source.
 - **False triggers:** raise `--threshold` (try `0.20`–`0.30`) or increase
   `--cooldown`.
-- **"Continue" or "stop" not recognized:** say it promptly after “Hey,
-  OpenCode”; the follow-up window is 1.5 seconds. You can also raise the
-  threshold only if false wake words are a problem, since command words use the
-  same threshold.
-- To add another pronunciation, edit `KEYWORDS` in `src/detector.rs`. The
-  keywords are sentencepiece/BPE pieces and can be generated with the model's
-  `bpe.model`.
+- **"Continue", "stop", or "help" not recognized:** say the command during the
+  five-second listening window. “Help” uses a slightly lower per-keyword
+  threshold because it is a short word.
+- **No notification appears:** install `libnotify` (`notify-send`). Voice
+  commands still work without it; only the visual countdown is missing.
+- To add another pronunciation, edit `WAKE_KEYWORDS` or `COMMAND_KEYWORDS` in
+  `src/detector.rs`. The keywords are sentencepiece/BPE pieces and can be
+  generated with the model's `bpe.model`.
 
 ## How it works
 
 1. `cpal` opens the default input (preferring 16 kHz mono; otherwise the device
    default) and downmixes to mono in the audio callback.
 2. A lock-free ring buffer hands samples to a single worker thread in 100 ms
-   chunks, so audio arriving just after the wake phrase is not discarded.
-3. The worker feeds normalized `f32` samples to a sherpa-onnx Zipformer
-   transducer configured for keyword spotting. Keywords cover the wake phrase
-   and the two standalone command words.
-4. On “Hey, OpenCode”, the service starts a 1.5-second follow-up window. If
-   “continue” or “stop” is recognized, it runs the matching action; otherwise it
-   starts `konsole --separate --title OpenCode -e opencode`.
-5. “Continue” starts `konsole ... -e opencode --continue`. “Stop” calls the
-   OpenCode API (`/api/session/active` and
-   `/api/session/{id}/interrupt`) to interrupt every session that is currently
-   generating, even when Konsole is not focused.
-6. After an action, the stream is reset, stale audio is drained, and the service
-   enters a cooldown (4 seconds for launches, 1 second for stop).
+   chunks.
+3. The worker feeds the always-on wake stream to a sherpa-onnx Zipformer2
+   keyword spotter. When “Hey, OpenCode” is recognized, it shows a
+   `notify-send` notification and starts a five-second countdown.
+4. During the countdown only the command stream is fed: `open`, `continue`,
+   `stop`, and `help`. The command stream uses the same loaded model, so there
+   is no second model and no extra idle CPU.
+5. If a command is recognized, the service runs it immediately. Otherwise,
+   after five seconds it starts `konsole --separate --title OpenCode -e
+   opencode`.
+6. “Open” starts a normal session immediately. “Continue” starts
+   `konsole ... -e opencode --continue`. “Stop” calls the OpenCode API
+   (`/api/session/active` and `/api/session/{id}/interrupt`) to interrupt every
+   session that is currently generating, even when Konsole is not focused.
+   “Help” starts `opencode-voice-help` in a new Konsole window.
+7. After an action, the streams are reset, stale audio is drained, and the
+   service enters a cooldown (4 seconds for launches, 1 second for stop).
 
 The model and binary are built for x86_64 Linux. The release binary links
 against the system `libstdc++`/glibc and does not require Rust at runtime.
@@ -141,8 +151,8 @@ Builds happen on GitHub Actions, not on the T480. The workflow uses an
 Push a tag to publish a release:
 
 ```bash
-git tag v0.2.0
-git push origin v0.2.0
+git tag v0.3.0
+git push origin v0.3.0
 ```
 
 You can also run the **Build** workflow manually from the Actions tab.
@@ -153,6 +163,7 @@ You can also run the **Build** workflow manually from the Actions tab.
 systemctl --user disable --now opencode-voice
 rm -f ~/.config/systemd/user/opencode-voice.service
 rm -f ~/.local/bin/opencode-voice
+rm -f ~/.local/bin/opencode-voice-help
 rm -rf ~/.local/share/opencode-voice
 systemctl --user daemon-reload
 ```

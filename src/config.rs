@@ -6,9 +6,11 @@ pub const USAGE: &str = "\
 opencode-voice - launch or control OpenCode with your voice
 
 VOICE COMMANDS:
-    \"Hey, OpenCode\"             Launch a new OpenCode session
+    \"Hey, OpenCode\"             Listen for 5 seconds, then open OpenCode
+    \"Hey, OpenCode, open\"       Open OpenCode immediately
     \"Hey, OpenCode, continue\"   Resume the last session (opencode --continue)
     \"Hey, OpenCode, stop\"       Interrupt the active OpenCode response
+    \"Hey, OpenCode, help\"       Show the voice command help in Konsole
 
 USAGE:
     opencode-voice [OPTIONS]

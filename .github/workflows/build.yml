@@ -41,7 +41,9 @@ jobs:
             ${{ runner.os }}-cargo-
 
       - name: Format
-        run: cargo fmt --check
+        run: |
+          cargo fmt --check
+          bash -n scripts/opencode-voice-help.sh
 
       - name: Test
         run: cargo test --release --locked
@@ -56,6 +58,7 @@ jobs:
           strip "$BIN"
           mkdir -p dist
           cp "$BIN" dist/
+          cp scripts/opencode-voice-help.sh dist/opencode-voice-help
           cp README.md LICENSE dist/
           tar -C dist -czf "opencode-voice-${GITHUB_REF_NAME}-x86_64-linux.tar.gz" .
 

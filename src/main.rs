@@ -2,6 +2,7 @@ mod audio;
 mod config;
 mod detector;
 mod launcher;
+mod notify;
 mod open_code;
 
 use std::path::Path;
@@ -13,10 +14,9 @@ use detector::{Detector, VoiceCommand};
 use launcher::LaunchMode;
 use sherpa_onnx::Wave;
 
-/// How long to wait after "Hey, OpenCode" for an optional "continue" or
-/// "stop". Keeping the audio chunks small means the command word is not lost
-/// when the base phrase fires first.
-const COMMAND_GRACE: Duration = Duration::from_millis(1_500);
+/// After the wake phrase, listen this long for an optional command. If nothing
+/// is heard, open OpenCode normally.
+const LISTEN_WINDOW: Duration = Duration::from_secs(5);
 const STOP_COOLDOWN: Duration = Duration::from_secs(1);
 const AUDIO_CHUNK: usize = 1_600;
 
@@ -57,55 +57,101 @@ fn run(config: Config) -> Result<(), String> {
         "loading wake-word model from {}",
         config.model_dir.display()
     );
-    let mut detector = Detector::new(&config.model_dir, config.threshold)?;
     let mut capture = audio::Capture::open(config.device.as_deref())?;
+    let mut detector = Detector::new(&config.model_dir, config.threshold, capture.sample_rate())?;
 
     eprintln!(
-        "ready | device: {} | input: {} Hz | threshold: {:.2} | listening for \"Hey, OpenCode\" (+ continue/stop)",
+        "ready | device: {} | input: {} Hz | threshold: {:.2} | listening for \"Hey, OpenCode\"",
         capture.device_name(),
         capture.sample_rate(),
         config.threshold
     );
 
     let mut buffer = vec![0.0f32; AUDIO_CHUNK];
-    let mut pending: Option<Instant> = None;
+    let mut listening_until: Option<Instant> = None;
+    let mut notice: Option<notify::ListeningNotice> = None;
 
     loop {
         let count = capture.read(&mut buffer);
 
         if count > 0 {
-            if let Some(detection) = detector.accept(capture.sample_rate(), &buffer[..count]) {
-                match detection.command {
-                    VoiceCommand::Launch => {
-                        eprintln!("wake phrase detected: {}", detection.keyword);
-                        pending = Some(Instant::now() + COMMAND_GRACE);
+            if listening_until.is_some() {
+                if let Some(detection) =
+                    detector.accept_command(capture.sample_rate(), &buffer[..count])
+                {
+                    listening_until = None;
+                    notice = None;
+                    eprintln!(
+                        "command detected: {} ({})",
+                        detection.keyword,
+                        command_name(detection.command)
+                    );
+                    execute_and_cooldown(
+                        detection.command,
+                        &config,
+                        &mut detector,
+                        &mut capture,
+                        &mut buffer,
+                    );
+                    continue;
+                }
+            } else if let Some(detection) =
+                detector.accept_wake(capture.sample_rate(), &buffer[..count])
+            {
+                eprintln!(
+                    "wake phrase detected: {} | listening for {} seconds",
+                    detection.keyword,
+                    LISTEN_WINDOW.as_secs()
+                );
+
+                listening_until = Some(Instant::now() + LISTEN_WINDOW);
+                notice = if config.dry_run {
+                    None
+                } else {
+                    Some(notify::ListeningNotice::start(LISTEN_WINDOW.as_secs()))
+                };
+                detector.reset_command();
+
+                // The wake result can arrive after the next command has already
+                // started. Replay the short tail after the wake phrase into the
+                // command stream before switching to live audio.
+                let mut handled = false;
+                for chunk in detection.wake_tail.chunks(AUDIO_CHUNK) {
+                    if let Some(command) = detector.accept_command(capture.sample_rate(), chunk) {
+                        listening_until = None;
+                        notice = None;
+                        eprintln!(
+                            "command detected: {} ({})",
+                            command.keyword,
+                            command_name(command.command)
+                        );
+                        execute_and_cooldown(
+                            command.command,
+                            &config,
+                            &mut detector,
+                            &mut capture,
+                            &mut buffer,
+                        );
+                        handled = true;
+                        break;
                     }
-                    VoiceCommand::Continue | VoiceCommand::Stop => {
-                        if pending.take().is_some() {
-                            eprintln!(
-                                "command detected: {} ({})",
-                                detection.keyword,
-                                command_name(detection.command)
-                            );
-                            execute_and_cooldown(
-                                detection.command,
-                                &config,
-                                &mut detector,
-                                &mut capture,
-                                &mut buffer,
-                            );
-                            continue;
-                        }
-                    }
+                }
+
+                if handled {
+                    continue;
                 }
             }
         }
 
-        if pending.is_some_and(|deadline| Instant::now() >= deadline) {
-            pending = None;
-            eprintln!("no follow-up command; launching OpenCode");
+        if listening_until.is_some_and(|deadline| Instant::now() >= deadline) {
+            listening_until = None;
+            notice = None;
+            eprintln!(
+                "no command within {} seconds; opening OpenCode",
+                LISTEN_WINDOW.as_secs()
+            );
             execute_and_cooldown(
-                VoiceCommand::Launch,
+                VoiceCommand::Open,
                 &config,
                 &mut detector,
                 &mut capture,
@@ -129,7 +175,7 @@ fn execute_and_cooldown(
 ) {
     let cooldown = execute(command, config);
 
-    detector.reset();
+    detector.reset_all();
     drain(capture, buffer);
 
     if !cooldown.is_zero() {
@@ -140,12 +186,16 @@ fn execute_and_cooldown(
 
 fn execute(command: VoiceCommand, config: &Config) -> Duration {
     match command {
-        VoiceCommand::Launch => {
+        VoiceCommand::Wake | VoiceCommand::Open => {
             launch(LaunchMode::New, config);
             config.cooldown
         }
         VoiceCommand::Continue => {
             launch(LaunchMode::Continue, config);
+            config.cooldown
+        }
+        VoiceCommand::Help => {
+            launch(LaunchMode::Help, config);
             config.cooldown
         }
         VoiceCommand::Stop => {
@@ -157,8 +207,9 @@ fn execute(command: VoiceCommand, config: &Config) -> Duration {
 
 fn launch(mode: LaunchMode, config: &Config) {
     let action = match mode {
-        LaunchMode::New => "launch OpenCode",
-        LaunchMode::Continue => "launch OpenCode with --continue",
+        LaunchMode::New => "open OpenCode",
+        LaunchMode::Continue => "open OpenCode with --continue",
+        LaunchMode::Help => "open the voice command help",
     };
 
     if config.dry_run {
@@ -205,56 +256,63 @@ fn run_wav(config: &Config, path: &Path) -> Result<(), String> {
         return Err("WAV file has an invalid sample rate".to_string());
     }
 
-    let mut detector = Detector::new(&config.model_dir, config.threshold)?;
+    let mut detector = Detector::new(&config.model_dir, config.threshold, sample_rate as u32)?;
     let mut samples = wave.samples().to_vec();
-    let padding = vec![0.0f32; sample_rate as usize];
+    let padding = vec![0.0f32; sample_rate as usize * (LISTEN_WINDOW.as_secs() as usize + 1)];
     samples.extend_from_slice(&padding);
 
     let mut elapsed = Duration::ZERO;
-    let mut pending: Option<(String, Duration)> = None;
+    let mut listening_until: Option<Duration> = None;
+    let mut wake_keyword: Option<String> = None;
 
     for chunk in samples.chunks(AUDIO_CHUNK) {
-        if let Some(detection) = detector.accept(sample_rate as u32, chunk) {
-            match detection.command {
-                VoiceCommand::Launch => {
-                    pending = Some((detection.keyword, elapsed + COMMAND_GRACE));
-                }
-                VoiceCommand::Continue | VoiceCommand::Stop => {
-                    if pending.take().is_some() {
-                        println!(
-                            "detected: {} ({})",
-                            detection.keyword,
-                            command_name(detection.command)
-                        );
-                        return Ok(());
-                    }
+        if listening_until.is_some() {
+            if let Some(detection) = detector.accept_command(sample_rate as u32, chunk) {
+                println!(
+                    "detected: {} ({})",
+                    detection.keyword,
+                    command_name(detection.command)
+                );
+                return Ok(());
+            }
+        } else if let Some(detection) = detector.accept_wake(sample_rate as u32, chunk) {
+            println!("detected: {} (listening)", detection.keyword);
+            wake_keyword = Some(detection.keyword);
+            listening_until = Some(elapsed + LISTEN_WINDOW);
+            detector.reset_command();
+
+            for tail_chunk in detection.wake_tail.chunks(AUDIO_CHUNK) {
+                if let Some(command) = detector.accept_command(sample_rate as u32, tail_chunk) {
+                    println!(
+                        "detected: {} ({})",
+                        command.keyword,
+                        command_name(command.command)
+                    );
+                    return Ok(());
                 }
             }
         }
 
         elapsed += Duration::from_secs_f64(chunk.len() as f64 / sample_rate as f64);
 
-        if let Some((keyword, deadline)) = &pending {
-            if elapsed >= *deadline {
-                println!("detected: {keyword} (launch)");
-                return Ok(());
-            }
+        if listening_until.is_some_and(|deadline| elapsed >= deadline) {
+            let keyword = wake_keyword.take().unwrap_or_default();
+            println!("detected: {keyword} (open after 5s)");
+            return Ok(());
         }
     }
 
-    match pending {
-        Some((keyword, _)) => println!("detected: {keyword} (launch)"),
-        None => println!("no keyword detected"),
-    }
-
+    println!("no keyword detected");
     Ok(())
 }
 
 fn command_name(command: VoiceCommand) -> &'static str {
     match command {
-        VoiceCommand::Launch => "launch",
+        VoiceCommand::Wake => "listen",
+        VoiceCommand::Open => "open",
         VoiceCommand::Continue => "continue",
         VoiceCommand::Stop => "stop",
+        VoiceCommand::Help => "help",
     }
 }
 

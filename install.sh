@@ -51,6 +51,9 @@ fi
 curl -fL "$ASSET_URL" -o "${TMP_DIR}/opencode-voice.tar.gz"
 tar -xzf "${TMP_DIR}/opencode-voice.tar.gz" -C "$TMP_DIR"
 install -Dm755 "${TMP_DIR}/opencode-voice" "${BIN_DIR}/opencode-voice"
+if [ -f "${TMP_DIR}/opencode-voice-help" ]; then
+    install -Dm755 "${TMP_DIR}/opencode-voice-help" "${BIN_DIR}/opencode-voice-help"
+fi
 
 if [ ! -f "${MODEL_DIR}/tokens.txt" ]; then
     printf 'Downloading the offline wake-word model...\n'
@@ -88,7 +91,8 @@ systemctl --user restart opencode-voice.service
 
 printf '\nInstalled.\n'
 printf '  binary:  %s\n' "${BIN_DIR}/opencode-voice"
+printf '  help:    %s\n' "${BIN_DIR}/opencode-voice-help"
 printf '  model:   %s\n' "${MODEL_DIR}"
 printf '  service: %s\n' "${UNIT_DIR}/opencode-voice.service"
-printf '\nSay "Hey, OpenCode", "Hey, OpenCode, continue", or "Hey, OpenCode, stop".\n'
+printf '\nSay "Hey, OpenCode" and then open, continue, stop, or help within 5 seconds.\n'
 printf 'Logs: journalctl --user -u opencode-voice -f\n'
