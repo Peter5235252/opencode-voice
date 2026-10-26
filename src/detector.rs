@@ -31,10 +31,10 @@ const TOKENS: &str = "tokens.txt";
 /// delayed keyword result, without keeping a large always-on buffer.
 const HISTORY_SECONDS: usize = 3;
 
-/// Start the replay just after the last wake token. The old version replayed a
-/// little audio before the last timestamp, which could include the "open" in
+/// Start the replay at the last wake token. The old version replayed a little
+/// audio before the last timestamp, which could include the "open" in
 /// "OpenCode" and fire an OPEN command immediately after the wake phrase.
-const TAIL_AFTER_LAST_TOKEN: f32 = 0.05;
+const TAIL_AFTER_LAST_TOKEN: f32 = 0.0;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum VoiceCommand {
@@ -296,8 +296,8 @@ mod tests {
 
     #[test]
     fn wake_tail_starts_after_the_last_wake_token() {
-        // 1.0 s timestamp at 16 kHz, plus the 50 ms post-token guard.
-        assert_eq!(wake_tail_start(32_000, 0, Some(1.0), 16_000), 16_000 + 800);
+        // 1.0 s timestamp at 16 kHz, with no pre-token overlap.
+        assert_eq!(wake_tail_start(32_000, 0, Some(1.0), 16_000), 16_000);
 
         // No usable timestamp: do not replay any audio from the wake phrase.
         assert_eq!(wake_tail_start(32_000, 0, None, 16_000), 32_000);
