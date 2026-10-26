@@ -130,6 +130,8 @@ systemctl --user daemon-reload
 
 ## License
 
-MIT. The wake-word model is
+MIT — Copyright (c) 2026 Cseman Péter.
+
+The wake-word model is
 [`sherpa-onnx-kws-zipformer-gigaspeech-3.3M-2024-01-01`](https://github.com/k2-fsa/sherpa-onnx/releases/tag/kws-models)
 and is licensed separately by its authors.
