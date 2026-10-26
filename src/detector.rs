@@ -20,11 +20,13 @@ const COMMAND_KEYWORDS: &str = "\
 ▁O P EN ▁MIN I #0.05
 ▁MIN I #0.05
 ▁O P EN ▁CHA T G P T #0.05
-▁CHA T G P T #0.08
 ▁O P EN ▁CHA T ▁G P T #0.05
+▁CHA T G P T #0.08
 ▁CHA T ▁G P T #0.08
+▁CHA T ▁G P #0.08
 ▁O P EN ▁C LA U DE #0.05
 ▁C LA U DE #0.08
+▁C LA #0.12
 ▁CON T IN U E #0.15
 ▁RE S U ME #0.15
 ▁ST O P #0.15
@@ -42,6 +44,7 @@ const PENDING_KEYWORDS: &str = "\
 ▁MIN #0.05
 ▁CHA T #0.05
 ▁C LA #0.05
+▁C L O #0.05
 ";
 
 const ENCODER: &str = "encoder-epoch-12-avg-2-chunk-16-left-64.onnx";
@@ -308,12 +311,7 @@ impl Detector {
                     continue;
                 }
 
-                let command = match normalize_keyword(&result.keyword).as_str() {
-                    "MIN" => Some(VoiceCommand::Mini),
-                    "CHAT" => Some(VoiceCommand::ChatGpt),
-                    "CLA" => Some(VoiceCommand::Claude),
-                    _ => None,
-                };
+                let command = pending_command_for_keyword(&result.keyword);
 
                 if std::env::var_os("OPENCODE_VOICE_DEBUG").is_some() {
                     if command.is_some() {
@@ -409,6 +407,15 @@ fn normalize_keyword(keyword: &str) -> String {
         .collect()
 }
 
+fn pending_command_for_keyword(keyword: &str) -> Option<VoiceCommand> {
+    match normalize_keyword(keyword).as_str() {
+        "min" => Some(VoiceCommand::Mini),
+        "chat" => Some(VoiceCommand::ChatGpt),
+        "cla" | "clo" => Some(VoiceCommand::Claude),
+        _ => None,
+    }
+}
+
 fn classify_command(keyword: &str) -> Option<VoiceCommand> {
     match normalize_keyword(keyword).as_str() {
         "open" => Some(VoiceCommand::Open),
@@ -451,9 +458,12 @@ mod tests {
         assert!(COMMAND_KEYWORDS.contains("▁O P EN ▁MIN I #0.05"));
         assert!(COMMAND_KEYWORDS.contains("▁MIN I #0.05"));
         assert!(COMMAND_KEYWORDS.contains("▁O P EN ▁CHA T G P T #0.05"));
+        assert!(COMMAND_KEYWORDS.contains("▁O P EN ▁CHA T ▁G P T #0.05"));
         assert!(COMMAND_KEYWORDS.contains("▁CHA T G P T #0.08"));
+        assert!(COMMAND_KEYWORDS.contains("▁CHA T ▁G P #0.08"));
         assert!(COMMAND_KEYWORDS.contains("▁O P EN ▁C LA U DE #0.05"));
         assert!(COMMAND_KEYWORDS.contains("▁C LA U DE #0.08"));
+        assert!(COMMAND_KEYWORDS.contains("▁C LA #0.12"));
         assert!(COMMAND_KEYWORDS.contains("▁CON T IN U E"));
         assert!(COMMAND_KEYWORDS.contains("▁RE S U ME #0.15"));
         assert!(COMMAND_KEYWORDS.contains("▁ST O P"));
@@ -465,6 +475,22 @@ mod tests {
         assert!(PENDING_KEYWORDS.contains("▁MIN #0.05"));
         assert!(PENDING_KEYWORDS.contains("▁CHA T #0.05"));
         assert!(PENDING_KEYWORDS.contains("▁C LA #0.05"));
+        assert!(PENDING_KEYWORDS.contains("▁C L O #0.05"));
+
+        assert_eq!(pending_command_for_keyword("MIN"), Some(VoiceCommand::Mini));
+        assert_eq!(
+            pending_command_for_keyword("CHAT"),
+            Some(VoiceCommand::ChatGpt)
+        );
+        assert_eq!(
+            pending_command_for_keyword("C LA"),
+            Some(VoiceCommand::Claude)
+        );
+        assert_eq!(
+            pending_command_for_keyword("C LO"),
+            Some(VoiceCommand::Claude)
+        );
+        assert_eq!(pending_command_for_keyword("HEY OPENCODE"), None);
     }
 
     #[test]
