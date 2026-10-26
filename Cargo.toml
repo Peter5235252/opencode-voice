@@ -1,0 +1,19 @@
+[package]
+name = "opencode-voice"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.85"
+description = "Offline wake-word launcher for OpenCode in Konsole"
+license = "MIT"
+repository = "https://github.com/Peter5235252/opencode-voice"
+
+[dependencies]
+cpal = "0.18.2"
+ringbuf = "0.4.8"
+sherpa-onnx = "2.0.0"
+
+[profile.release]
+opt-level = 3
+lto = "thin"
+codegen-units = 1
+strip = "symbols"

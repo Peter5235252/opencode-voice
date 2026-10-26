@@ -1,0 +1,18 @@
+[Unit]
+Description=OpenCode voice launcher
+Documentation=https://github.com/Peter5235252/opencode-voice
+After=graphical-session.target pipewire.service wireplumber.service
+PartOf=graphical-session.target
+
+[Service]
+Type=simple
+WorkingDirectory=%h
+ExecStart=%h/.local/bin/opencode-voice --model-dir %h/.local/share/opencode-voice/models/sherpa-onnx-kws-zipformer-gigaspeech-3.3M-2024-01-01
+Restart=on-failure
+RestartSec=3
+Nice=10
+IOSchedulingClass=idle
+NoNewPrivileges=true
+
+[Install]
+WantedBy=graphical-session.target
