@@ -9,6 +9,7 @@ VOICE COMMANDS:
     \"Hey, OpenCode\"             Listen for 5 seconds, then cancel if no command is heard
     \"Hey, OpenCode, open\"       Open OpenCode immediately
     \"Hey, OpenCode, continue\"   Resume the last session (opencode --continue)
+    \"Hey, OpenCode, resume\"     Alias for continue
     \"Hey, OpenCode, stop\"       Interrupt the active OpenCode response
     \"Hey, OpenCode, help\"       Show the voice command help in a new terminal
     \"Hey, OpenCode, never mind\"  Cancel the countdown and do nothing

@@ -18,6 +18,9 @@ const WAKE_KEYWORDS: &str = "\
 const COMMAND_KEYWORDS: &str = "\
 ▁O P EN #0.15
 ▁CON T IN U E #0.15
+▁RE S U M E #0.10
+▁RE S U ME #0.10
+▁RE S UM E #0.10
 ▁ST O P #0.15
 ▁HELP #0.08
 ▁NEVER ▁MIN D #0.10
@@ -278,6 +281,7 @@ fn classify_command(keyword: &str) -> Option<VoiceCommand> {
     match normalized.as_str() {
         "open" => Some(VoiceCommand::Open),
         "continue" => Some(VoiceCommand::Continue),
+        "resume" => Some(VoiceCommand::Continue),
         "stop" => Some(VoiceCommand::Stop),
         "help" => Some(VoiceCommand::Help),
         "nevermind" => Some(VoiceCommand::NeverMind),
@@ -311,6 +315,7 @@ mod tests {
 
         assert!(COMMAND_KEYWORDS.contains("▁O P EN"));
         assert!(COMMAND_KEYWORDS.contains("▁CON T IN U E"));
+        assert!(COMMAND_KEYWORDS.contains("▁RE S U M E"));
         assert!(COMMAND_KEYWORDS.contains("▁ST O P"));
         assert!(COMMAND_KEYWORDS.contains("▁HELP #0.08"));
         assert!(COMMAND_KEYWORDS.contains("▁NEVER ▁MIN D"));
@@ -321,6 +326,8 @@ mod tests {
     fn classifies_all_commands() {
         assert_eq!(classify_command("OPEN"), Some(VoiceCommand::Open));
         assert_eq!(classify_command("CONTINUE"), Some(VoiceCommand::Continue));
+        assert_eq!(classify_command("RESUME"), Some(VoiceCommand::Continue));
+        assert_eq!(classify_command("resume"), Some(VoiceCommand::Continue));
         assert_eq!(classify_command("STOP"), Some(VoiceCommand::Stop));
         assert_eq!(classify_command("HELP"), Some(VoiceCommand::Help));
         assert_eq!(
